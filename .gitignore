@@ -1,0 +1,25 @@
+# Device secrets and certificates
+firmware/include/secrets.h
+firmware/include/ca_cert.h
+
+# PlatformIO output
+firmware/.pio/
+
+# Flutter and Dart output
+app/.dart_tool/
+app/.packages
+app/build/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/ios/Pods/
+app/ios/.symlinks/
+app/android/.gradle/
+
+# Local analysis artifacts
+graphify-out/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

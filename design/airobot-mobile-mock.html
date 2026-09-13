@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AiRobot · Mock de pantallas</title>
+  <style>
+    :root {
+      --paper: #f7f9ff;
+      --panel: rgba(255,255,255,.84);
+      --ink: #17213a;
+      --muted: #6d7891;
+      --line: #e2e8f3;
+      --blue: #2768f4;
+      --cyan: #25bddd;
+      --violet: #8152ed;
+      --coral: #f27870;
+      --safe: #168865;
+      --danger: #d83c4f;
+      --shadow: 0 20px 55px rgba(29, 52, 93, .13);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      color: var(--ink);
+      background: radial-gradient(circle at 8% 6%, #e3f7ff 0 11%, transparent 30%), var(--paper);
+      font: 15px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button { font: inherit; cursor: pointer; }
+    .shell { max-width: 1420px; margin: 0 auto; padding: 22px; }
+    .topbar { display: flex; align-items: center; gap: 20px; min-height: 58px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 740; letter-spacing: -.04em; }
+    .orbit { width: 28px; height: 28px; border-radius: 10px; background: conic-gradient(from 230deg, var(--cyan), var(--blue), var(--violet), var(--coral), var(--cyan)); position: relative; }
+    .orbit::after { content: ""; position: absolute; inset: 7px; background: var(--paper); border-radius: 6px; }
+    .robot-name { color: var(--muted); font-size: 14px; margin-right: auto; }
+    .status { color: var(--safe); background: #e8f7f1; border-radius: 999px; padding: 8px 12px; font-weight: 650; font-size: 13px; }
+    .emergency { border: 0; border-radius: 15px; padding: 10px 15px; color: #fff; background: var(--danger); box-shadow: 0 8px 18px rgba(216,60,79,.22); font-weight: 700; }
+    .app { display: grid; grid-template-columns: 198px minmax(430px, 1fr) 278px; gap: 16px; min-height: 690px; }
+    .nav, .side, .workspace { border: 1px solid rgba(211,221,237,.8); background: var(--panel); box-shadow: var(--shadow); backdrop-filter: blur(12px); }
+    .nav { border-radius: 24px; padding: 14px; display: flex; flex-direction: column; gap: 4px; }
+    .nav small { padding: 12px 10px 6px; color: var(--muted); font-weight: 650; }
+    .nav button { text-align: left; border: 0; background: transparent; padding: 12px 13px; border-radius: 14px; color: #45516a; font-weight: 630; }
+    .nav button.active { color: #10255f; background: linear-gradient(100deg, #e7f5ff, #f2edff); }
+    .nav button.active::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 10px; border-radius: 50%; background: var(--blue); box-shadow: 9px 0 var(--violet); }
+    .nav .account { margin-top: auto; padding: 13px 10px 3px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+    .workspace { border-radius: 28px; padding: 24px; overflow: hidden; position: relative; }
+    .eyebrow { color: var(--muted); font-size: 13px; font-weight: 650; }
+    h1 { margin: 4px 0 0; font-size: clamp(25px, 3vw, 38px); letter-spacing: -.055em; line-height: 1.05; }
+    .sub { margin: 8px 0 0; color: var(--muted); }
+    .canvas { height: 310px; margin: 24px 0 18px; border-radius: 22px; position: relative; overflow: hidden; background: linear-gradient(135deg, #edf7ff, #f8f4ff 58%, #fff2ef); }
+    .canvas::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(rgba(45,100,190,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(45,100,190,.07) 1px, transparent 1px); background-size: 28px 28px; }
+    .axis { position: absolute; left: 38px; bottom: 35px; font-weight: 700; font-size: 12px; }
+    .axis span { display: inline-flex; align-items: center; justify-content: center; width: 35px; height: 35px; margin-right: 4px; border-radius: 50%; color: white; }
+    .axis .x { background: var(--coral); } .axis .y { background: var(--cyan); } .axis .z { background: var(--violet); }
+    .arm { position: absolute; left: 34%; bottom: 18px; width: 330px; height: 260px; transform: rotate(-4deg); transform-origin: bottom left; }
+    .seg { position: absolute; height: 17px; border-radius: 12px; background: linear-gradient(90deg, #263451, #51698e); transform-origin: left center; box-shadow: 0 4px 9px rgba(35,50,85,.2); }
+    .s1 { width: 104px; bottom: 41px; left: 22px; transform: rotate(-62deg); }
+    .s2 { width: 99px; bottom: 130px; left: 70px; transform: rotate(4deg); }
+    .s3 { width: 75px; bottom: 132px; left: 163px; transform: rotate(-54deg); }
+    .joint { position: absolute; width: 28px; height: 28px; border: 6px solid #fff; border-radius: 50%; background: var(--blue); box-shadow: 0 3px 10px rgba(39,104,244,.25); }
+    .j1 { bottom: 28px; left: 10px; } .j2 { bottom: 118px; left: 59px; } .j3 { bottom: 119px; left: 154px; } .tcp { bottom: 188px; left: 224px; background: var(--coral); }
+    .tcp-label { position: absolute; bottom: 215px; left: 218px; color: var(--ink); background: white; padding: 5px 9px; border-radius: 9px; font-size: 12px; font-weight: 700; box-shadow: 0 7px 16px rgba(49,65,93,.12); }
+    .target { position: absolute; top: 55px; right: 55px; width: 32px; height: 32px; border: 2px solid var(--coral); border-radius: 50%; }
+    .target::before, .target::after { content: ""; position: absolute; background: var(--coral); } .target::before { height: 2px; width: 46px; left: -9px; top: 13px; } .target::after { width: 2px; height: 46px; left: 13px; top: -9px; }
+    .target-text { position: absolute; top: 95px; right: 26px; color: var(--muted); font-size: 12px; }
+    .command { display: grid; grid-template-columns: repeat(3, 1fr) auto; gap: 10px; align-items: end; }
+    .field label { display: block; color: var(--muted); font-size: 12px; font-weight: 650; margin: 0 0 5px 3px; }
+    .field div { border: 1px solid var(--line); border-radius: 14px; background: #fff; padding: 11px; font-weight: 700; }
+    .field em { color: var(--muted); font-style: normal; font-size: 12px; font-weight: 600; }
+    .move { border: 0; min-height: 45px; padding: 0 18px; border-radius: 15px; background: linear-gradient(108deg, var(--blue), var(--violet)); color: #fff; font-weight: 740; box-shadow: 0 9px 20px rgba(79,91,224,.25); }
+    .side { border-radius: 24px; padding: 18px; }
+    .side h2 { margin: 0; font-size: 16px; letter-spacing: -.02em; }
+    .side p { margin: 4px 0 16px; color: var(--muted); font-size: 13px; }
+    .joint-row { display: grid; grid-template-columns: 34px 1fr auto; gap: 9px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .joint-dot { width: 28px; height: 28px; display: grid; place-items: center; color: var(--blue); background: #e8f1ff; border-radius: 10px; font-size: 12px; font-weight: 800; }
+    .joint-row b { font-size: 13px; } .joint-row small { display: block; color: var(--muted); font-size: 11px; }
+    .joint-row span { font-weight: 720; font-size: 13px; }
+    .quick { margin-top: 18px; border: 1px solid var(--line); background: #fff; border-radius: 17px; padding: 13px; }
+    .quick b { font-size: 13px; } .quick button { margin: 10px 6px 0 0; border: 1px solid #d5def0; border-radius: 999px; background: #fff; padding: 7px 10px; color: #425171; font-size: 12px; font-weight: 650; }
+    .rail { margin-top: 20px; display: grid; grid-template-columns: repeat(4, minmax(225px, 1fr)); gap: 14px; overflow-x: auto; padding-bottom: 5px; }
+    .screen { min-height: 184px; padding: 17px; border: 1px solid var(--line); border-radius: 21px; background: #fff; }
+    .screen h3 { margin: 0; font-size: 15px; letter-spacing: -.02em; } .screen p { margin: 5px 0 14px; color: var(--muted); font-size: 12px; }
+    .mini-line { height: 9px; border-radius: 9px; background: #eaf0fa; margin: 9px 0; } .mini-line.wide { width: 90%; } .mini-line.mid { width: 64%; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; } .chip { padding: 6px 8px; border-radius: 999px; color: #435370; background: #eff4fc; font-size: 11px; font-weight: 700; }
+    .gradient-chip { color: #fff; background: linear-gradient(105deg, var(--cyan), var(--violet), var(--coral)); }
+    @media (max-width: 980px) { .app { grid-template-columns: 180px 1fr; } .side { display: none; } }
+    @media (max-width: 660px) { .shell { padding: 14px; } .robot-name { display: none; } .topbar { gap: 10px; } .status { padding: 7px 9px; font-size: 11px; } .emergency { padding: 9px 11px; font-size: 12px; } .app { grid-template-columns: 1fr; } .nav { flex-direction: row; overflow-x: auto; padding: 8px; } .nav small, .nav .account { display: none; } .nav button { white-space: nowrap; padding: 9px 11px; } .canvas { height: 260px; } .arm { left: 17%; transform: scale(.84) rotate(-4deg); transform-origin: bottom left; } .command { grid-template-columns: repeat(3, 1fr); } .move { grid-column: 1 / -1; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="orbit"></span>AiRobot</div>
+      <div class="robot-name">Robot · AR-001 / Taller</div>
+      <div class="status">● Conectado</div>
+      <button class="emergency">Parada de emergencia</button>
+    </header>
+
+    <section class="app" aria-label="Mock de pantalla de control">
+      <nav class="nav" aria-label="Navegación principal">
+        <small>Espacio de trabajo</small>
+        <button class="active">Control</button><button>Mover TCP</button><button>Programas</button><button>Enseñar</button><button>Configuración</button>
+        <div class="account">Cuenta vinculada<br><strong>Ivan · propietario</strong></div>
+      </nav>
+
+      <section class="workspace">
+        <div class="eyebrow">Control en vivo</div>
+        <h1>Ubica la punta, no los motores.</h1>
+        <p class="sub">El sistema busca una postura rápida dentro de los límites seguros.</p>
+        <div class="canvas" aria-label="Vista esquemática del brazo y su objetivo">
+          <div class="target"></div><div class="target-text">Objetivo · X 120 · Y 80 · Z 140</div>
+          <div class="axis"><span class="x">X</span><span class="y">Y</span><span class="z">Z</span></div>
+          <div class="arm"><i class="seg s1"></i><i class="seg s2"></i><i class="seg s3"></i><i class="joint j1"></i><i class="joint j2"></i><i class="joint j3"></i><i class="joint tcp"></i><b class="tcp-label">TCP</b></div>
+        </div>
+        <div class="command">
+          <div class="field"><label>X</label><div>120 <em>mm</em></div></div>
+          <div class="field"><label>Y</label><div>80 <em>mm</em></div></div>
+          <div class="field"><label>Z</label><div>140 <em>mm</em></div></div>
+          <button class="move">Mover a posición</button>
+        </div>
+      </section>
+
+      <aside class="side">
+        <h2>Postura actual</h2><p>Objetivo local confirmado</p>
+        <div class="joint-row"><i class="joint-dot">1</i><b>Base<small>J1</small></b><span>+18°</span></div>
+        <div class="joint-row"><i class="joint-dot">2</i><b>Brazo 1<small>J2 · doble</small></b><span>+42°</span></div>
+        <div class="joint-row"><i class="joint-dot">3</i><b>Brazo 2<small>J3</small></b><span>−21°</span></div>
+        <div class="joint-row"><i class="joint-dot">4</i><b>Muñeca<small>J4–J6</small></b><span>Seguro</span></div>
+        <div class="quick"><b>Acciones rápidas</b><br><button>Ir a home</button><button>Abrir garra</button><button>Guardar punto</button></div>
+      </aside>
+    </section>
+
+    <section class="rail" aria-label="Resumen de pantallas adicionales">
+      <article class="screen"><h3>Programas</h3><p>Secuencias guardadas por nombre.</p><div class="chips"><span class="chip gradient-chip">Pick & place</span><span class="chip">Nuevo programa</span></div><div class="mini-line wide"></div><div class="mini-line mid"></div></article>
+      <article class="screen"><h3>Enseñar</h3><p>Registra movimientos creados desde controles manuales.</p><div class="chips"><span class="chip">J1</span><span class="chip">J2</span><span class="chip">Garra</span><span class="chip gradient-chip">Guardar paso</span></div></article>
+      <article class="screen"><h3>Configuración</h3><p>Perfil mecánico versionado y calibración guiada.</p><div class="mini-line wide"></div><div class="chips"><span class="chip">Home</span><span class="chip">Límites</span><span class="chip">Offsets</span></div></article>
+      <article class="screen"><h3>Robot</h3><p>Propiedad, conexión y seguridad.</p><div class="chips"><span class="chip">AR-001</span><span class="chip">MQTTS</span><span class="chip">Online</span></div><div class="mini-line mid"></div></article>
+    </section>
+  </main>
+</body>
+</html>
