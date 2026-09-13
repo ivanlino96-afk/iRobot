@@ -4,7 +4,7 @@
 
 AiRobot controla por Internet un brazo robótico de 6 grados de libertad con garra:
 
-- Controlador: ESP32-C3 Mini.
+- Controlador: Seeed Studio XIAO ESP32-C3.
 - Driver de servos: PCA9685 por I2C.
 - Actuadores: 8 servos MG995.
 - Cliente: Flutter para iOS, siguiendo MVVM y Clean Architecture.

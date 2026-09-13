@@ -1,0 +1,7 @@
+.git
+.build
+app
+firmware
+**/node_modules
+**/.env
+**/private

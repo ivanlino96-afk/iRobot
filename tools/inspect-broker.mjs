@@ -1,0 +1,2 @@
+import {Broker} from '../backend/src/broker.js';import {localEnvironment} from './local-env.mjs';
+const b=new Broker(localEnvironment());await new Promise(resolve=>b.client.once('connect',resolve));for(const c of [{command:'getRole',rolename:'api-robot-state'},{command:'getClient',username:'admin'}]){try{const r=await b.command(c);console.log(JSON.stringify(r));}catch(e){console.log(c.command,e.message);}}await b.close();

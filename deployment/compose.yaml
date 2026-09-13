@@ -1,0 +1,60 @@
+name: airobot
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: airobot
+      POSTGRES_USER: airobot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run setup first}
+    volumes:
+      - database:/var/lib/postgresql/data
+    ports:
+      - '127.0.0.1:55432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U airobot']
+      interval: 3s
+      retries: 20
+  broker:
+    image: eclipse-mosquitto:2.0.22
+    user: '${LOCAL_UID}:${LOCAL_GID}'
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./private:/private
+    ports:
+      - '127.0.0.1:18883:8883'
+  api:
+    user: '${LOCAL_UID}:${LOCAL_GID}'
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    environment:
+      DATABASE_URL: postgres://airobot:${POSTGRES_PASSWORD}@postgres:5432/airobot
+      AUTH_SECRET: ${AUTH_SECRET}
+      SIGNING_KEY: /private/signing.pem
+      MQTT_URL: mqtts://broker:8883
+      MQTT_CA: /private/ca.crt
+      MQTT_ADMIN_USER: admin
+      MQTT_ADMIN_PASSWORD: ${MQTT_ADMIN_PASSWORD}
+      MQTT_PUBLIC_HOST: ${MQTT_PUBLIC_HOST:-localhost}
+      MQTT_PUBLIC_PORT: ${MQTT_PUBLIC_PORT:-18883}
+      BIND_ADDRESS: 0.0.0.0
+    volumes:
+      - ./private:/private:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      broker:
+        condition: service_started
+    restart: on-failure
+  https:
+    image: caddy:2-alpine
+    user: '${LOCAL_UID}:${LOCAL_GID}'
+    ports:
+      - '127.0.0.1:18443:8443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./private:/private:ro
+    depends_on:
+      - api
+volumes:
+  database:

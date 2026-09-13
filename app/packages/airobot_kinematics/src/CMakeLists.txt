@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.10)
+project(airobot_kinematics_library LANGUAGES CXX)
+add_library(airobot_kinematics SHARED airobot_kinematics.cpp)
+target_compile_features(airobot_kinematics PRIVATE cxx_std_17)
+if(ANDROID)
+ target_link_options(airobot_kinematics PRIVATE "-Wl,-z,max-page-size=16384")
+endif()

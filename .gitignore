@@ -23,3 +23,16 @@ graphify-out/
 Thumbs.db
 .idea/
 .vscode/
+
+# Implementation dependencies, local provisioning and build artifacts
+.build/
+backend/node_modules/
+.env
+.env.*
+!.env.example
+*.iml
+**/.idea/
+firmware/include/server_key.h
+deployment/private/
+**/.dart_tool/
+**/build/

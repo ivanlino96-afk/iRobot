@@ -1,0 +1,1 @@
+{"name":"airobot-api","private":true,"type":"module","version":"0.2.0","engines":{"node":">=22"},"scripts":{"start":"node src/server.js","test":"node --test test/*.test.js","provision":"node src/provision.js"},"dependencies":{"ajv":"^8.17.1","express":"^5.1.0","mqtt":"^5.14.1","pg":"^8.16.3"},"devDependencies":{"pg-mem":"^3.0.5","prettier":"^3.9.6","supertest":"^7.1.4"}}

@@ -1,0 +1,228 @@
+{
+  "version": 1,
+  "homeRevision": 1,
+  "kinematicsVersion": "ik-dls-1",
+  "calibrated": false,
+  "geometryValidated": false,
+  "simulationOnly": false,
+  "sda": 6,
+  "scl": 7,
+  "heartbeatMs": 1000,
+  "maxTickMs": 100,
+  "linkRadius": 0,
+  "minimum": [
+    -80,
+    -80,
+    -80,
+    -80,
+    -80,
+    -80,
+    0
+  ],
+  "maximum": [
+    80,
+    80,
+    80,
+    80,
+    80,
+    80,
+    60
+  ],
+  "home": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "velocity": [
+    15,
+    15,
+    15,
+    15,
+    15,
+    15,
+    15
+  ],
+  "acceleration": [
+    30,
+    30,
+    30,
+    30,
+    30,
+    30,
+    30
+  ],
+  "tool": [
+    0,
+    0,
+    140
+  ],
+  "boxes": [],
+  "axes": [
+    {
+      "origin": [
+        0,
+        0,
+        80
+      ],
+      "axis": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "origin": [
+        0,
+        0,
+        120
+      ],
+      "axis": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "origin": [
+        0,
+        0,
+        70
+      ],
+      "axis": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "origin": [
+        0,
+        0,
+        80
+      ],
+      "axis": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "origin": [
+        0,
+        0,
+        80
+      ],
+      "axis": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "axis": [
+        0,
+        0,
+        1
+      ]
+    }
+  ],
+  "servos": [
+    {
+      "joint": 0,
+      "pcaChannel": 0,
+      "zero": 90,
+      "offset": 0,
+      "ratio": 1,
+      "min": 5,
+      "max": 175,
+      "pulseMin": 600,
+      "pulseMax": 2400
+    },
+    {
+      "joint": 1,
+      "pcaChannel": 1,
+      "zero": 90,
+      "offset": 0,
+      "ratio": 1,
+      "min": 5,
+      "max": 175,
+      "pulseMin": 600,
+      "pulseMax": 2400
+    },
+    {
+      "joint": 1,
+      "pcaChannel": 2,
+      "zero": 90,
+      "offset": 0,
+      "ratio": -1,
+      "min": 5,
+      "max": 175,
+      "pulseMin": 600,
+      "pulseMax": 2400
+    },
+    {
+      "joint": 2,
+      "pcaChannel": 3,
+      "zero": 90,
+      "offset": 0,
+      "ratio": 1,
+      "min": 5,
+      "max": 175,
+      "pulseMin": 600,
+      "pulseMax": 2400
+    },
+    {
+      "joint": 3,
+      "pcaChannel": 4,
+      "zero": 90,
+      "offset": 0,
+      "ratio": 1,
+      "min": 5,
+      "max": 175,
+      "pulseMin": 600,
+      "pulseMax": 2400
+    },
+    {
+      "joint": 4,
+      "pcaChannel": 5,
+      "zero": 90,
+      "offset": 0,
+      "ratio": 1,
+      "min": 5,
+      "max": 175,
+      "pulseMin": 600,
+      "pulseMax": 2400
+    },
+    {
+      "joint": 5,
+      "pcaChannel": 6,
+      "zero": 90,
+      "offset": 0,
+      "ratio": 1,
+      "min": 5,
+      "max": 175,
+      "pulseMin": 600,
+      "pulseMax": 2400
+    },
+    {
+      "joint": 6,
+      "pcaChannel": 7,
+      "zero": 90,
+      "offset": 0,
+      "ratio": 1,
+      "min": 5,
+      "max": 175,
+      "pulseMin": 600,
+      "pulseMax": 2400
+    }
+  ]
+}
