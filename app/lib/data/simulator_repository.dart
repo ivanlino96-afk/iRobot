@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:isolate';
 import 'package:airobot_kinematics/airobot_kinematics.dart';
 import '../domain/models.dart';
 
@@ -16,6 +17,8 @@ class SimulatorRepository implements RobotRepository {
   final saved = <Map<String, dynamic>>[];
   RobotSnapshot snapshot = const RobotSnapshot(simulation: true);
   bool link = true;
+  int generation = 0;
+  bool disposed = false;
   @override
   Stream<RobotSnapshot> get states => _states.stream;
   void _tick() {
@@ -50,6 +53,9 @@ class SimulatorRepository implements RobotRepository {
 
   @override
   Future<void> command(String type, Map<String, dynamic> payload) async {
+    if (disposed) throw StateError('Simulador desconectado');
+    if (['stop', 'emergencyStop', 'resetLatch'].contains(type)) generation++;
+    final commandGeneration = generation;
     int code;
     List<double>? q;
     int speed = payload['speedPercent'] ?? 10;
@@ -89,12 +95,27 @@ class SimulatorRepository implements RobotRepository {
         break;
       case 'moveTcp':
         code = 7;
-        q = math.plan(
-          profile.nativeValues,
-          snapshot.joints,
-          RobotProfile.numbers(payload['tcp'], 3),
-          speed,
+        final values = List<double>.of(profile.nativeValues);
+        final from = List<double>.of(snapshot.joints);
+        final tcp = RobotProfile.numbers(payload['tcp'], 3);
+        final keep = payload['orientation'] == 'current';
+        q = await Isolate.run(
+          () => NativeKinematics().plan(
+            values,
+            from,
+            tcp,
+            speed,
+            keepOrientation: keep,
+          ),
         );
+        if (disposed ||
+            generation != commandGeneration ||
+            snapshot.state != 'READY') {
+          throw StateError('Movimiento simulado cancelado');
+        }
+        if (q == null) {
+          throw StateError('Punto fuera de alcance');
+        }
         q[6] = (payload['gripperDegrees'] as num).toDouble();
         break;
       case 'runProgram':
@@ -126,6 +147,7 @@ class SimulatorRepository implements RobotRepository {
 
   @override
   Future<void> activateProfile(RobotProfile p) async {
+    generation++;
     if ([
       'EXECUTING',
       'STOPPING',
@@ -151,11 +173,16 @@ class SimulatorRepository implements RobotRepository {
       )
       .toList();
   @override
-  Future<void> saveProgram(String name, Map<String, dynamic> body) async {
+  Future<void> saveProgram(
+    String name,
+    Map<String, dynamic> body, {
+    String? sourceId,
+  }) async {
     saved.add({
       'id': DateTime.now().microsecondsSinceEpoch.toString(),
       'name': name,
       'body': body,
+      'sourceId': ?sourceId,
       'revision': 1,
     });
   }
@@ -167,6 +194,9 @@ class SimulatorRepository implements RobotRepository {
 
   @override
   Future<void> dispose() async {
+    if (disposed) return;
+    disposed = true;
+    generation++;
     timer?.cancel();
     robot.dispose();
     watch.stop();

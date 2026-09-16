@@ -21,6 +21,7 @@ class MqttRobotRepository implements RobotRepository {
   Timer? timer;
   DateTime lastState = DateTime.fromMillisecondsSinceEpoch(0);
   bool renewing = false, closed = false;
+  bool confirmed = false;
   final pending = <String, Completer<void>>{};
   StreamSubscription? subscription;
   String get base => 'airobot/v1/robots/$robotId/';
@@ -31,6 +32,7 @@ class MqttRobotRepository implements RobotRepository {
   // Initial broker access uses the bootId read from the API's authenticated status endpoint.
   Future<void> connect({String scope = 'control'}) async {
     final status = await api.get('/robots/$robotId/state');
+    if (closed) throw StateError('Conexión cancelada');
     snapshot = RobotSnapshot.fromJson(Map<String, dynamic>.from(status));
     scope = ['ESTOP_LATCHED', 'FAULT'].contains(snapshot.state)
         ? 'recovery'
@@ -41,6 +43,7 @@ class MqttRobotRepository implements RobotRepository {
         'scope': scope,
       }),
     );
+    if (closed) throw StateError('Conexión cancelada');
     sequence = 0;
     final mqtt = session!['mqtt'];
     final c = MqttServerClient.withPort(mqtt['host'], id(), mqtt['port']);
@@ -50,6 +53,10 @@ class MqttRobotRepository implements RobotRepository {
     c.onDisconnected = _disconnected;
     client = c;
     await c.connect(mqtt['username'], mqtt['password']);
+    if (closed) {
+      c.disconnect();
+      throw StateError('Conexión cancelada');
+    }
     if (c.connectionStatus?.state != MqttConnectionState.connected) {
       throw StateError('No fue posible conectar MQTT');
     }
@@ -69,7 +76,7 @@ class MqttRobotRepository implements RobotRepository {
             }
             snapshot = next;
             lastState = DateTime.now();
-            _states.add(snapshot);
+            if (confirmed) _states.add(snapshot);
           } else if (event.topic == '${base}ack') {
             final completer = pending.remove(m['commandId']);
             if (completer != null) {
@@ -94,6 +101,11 @@ class MqttRobotRepository implements RobotRepository {
     c.subscribe('${base}state', MqttQos.atLeastOnce);
     c.subscribe('${base}ack', MqttQos.atLeastOnce);
     await command('openSession', {});
+    if (closed) throw StateError('Conexión cancelada');
+    confirmed = true;
+    lastState = DateTime.now();
+    _states.add(snapshot);
+
     timer = Timer.periodic(
       const Duration(milliseconds: 250),
       (_) => _heartbeat(),
@@ -102,6 +114,8 @@ class MqttRobotRepository implements RobotRepository {
 
   void _disconnected() {
     timer?.cancel();
+    confirmed = false;
+    snapshot = snapshot.disconnected();
     session = null;
     for (final p in pending.values) {
       if (!p.isCompleted) p.completeError(StateError('Conexión perdida'));
@@ -206,8 +220,16 @@ class MqttRobotRepository implements RobotRepository {
           .map((e) => Map<String, dynamic>.from(e))
           .toList();
   @override
-  Future<void> saveProgram(String name, Map<String, dynamic> body) async {
-    await api.post('/robots/$robotId/programs', {'name': name, 'body': body});
+  Future<void> saveProgram(
+    String name,
+    Map<String, dynamic> body, {
+    String? sourceId,
+  }) async {
+    await api.post('/robots/$robotId/programs', {
+      'name': name,
+      'body': body,
+      'sourceId': ?sourceId,
+    });
   }
 
   @override

@@ -209,3 +209,10 @@ La matriz indica cobertura prevista, no funciones ya implementadas. D-01 registr
 Se adoptan: parada de software enclavada con rearme autenticado validado por firmware; parada controlada y cancelación por pérdida de control; reconexión sin movimiento; operación normal por articulación; orientación home fija para TCP; trayectorias articulares punto a punto; resolución determinista repetida en firmware; programas ligados al perfil; sesión exclusiva, secuencias y caducidad.
 
 D-01 y D-02 están resueltas: se acepta la caída al perder energía y se excluyen botón físico y circuito de corte en esta etapa. Permanecen pendientes D-03 y los parámetros obtenidos de calibración y pruebas. La ausencia de esos componentes no bloquea el alcance actual; siguen siendo necesarias las validaciones de límites, referencia y parada por software antes de activar actuadores. Estas decisiones actualizan el diseño y requieren implementación posterior en app y firmware.
+
+
+## Ajuste de alcance — 13 de septiembre de 2026
+
+Por decisión del usuario, se pospone la autorización por propietario y las ACL específicas por robot. Todos los usuarios autenticados pueden consultar los robots registrados y solicitar su sesión de control. La asociación mediante QR es opcional para el acceso. Esta decisión prevalece sobre los apartados anteriores que exigen aislamiento por propietario.
+
+La conexión inicial confirma una respuesta del ESP32 y presenta un indicador de conexión en curso, éxito o error. No exige calibración ni programas guardados. Se mantienen TLS, autenticación general, vigencia de mensajes, validación de destino/arranque, sesión exclusiva y límites locales de movimiento. Conectar no habilita ni mueve servos. El simulador se identifica por separado.

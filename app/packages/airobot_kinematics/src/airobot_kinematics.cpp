@@ -1,14 +1,184 @@
 #include "core.hpp"
 using namespace airobot;
 // Flat profile layout is produced by RobotProfile.nativeValues in Dart.
-static Profile unpack(const double*x){Profile p;p.hash=std::string(64,'0');p.version=1;p.homeRevision=1;p.calibrated=x[0]!=0;p.geometryValidated=x[1]!=0;p.heartbeatMs=1000;p.maxTickMs=100;p.linkRadius=x[2];int n=3;for(auto a:{&p.minimum,&p.maximum,&p.home,&p.velocity,&p.acceleration})for(double&v:*a)v=x[n++];for(auto&s:p.servos){s.joint=x[n++];s.channel=x[n++];s.zero=x[n++];s.offset=x[n++];s.ratio=x[n++];s.min=x[n++];s.max=x[n++];s.pulseMin=x[n++];s.pulseMax=x[n++];}for(auto&a:p.axes){for(auto&v:a.origin)v=x[n++];for(auto&v:a.axis)v=x[n++];}for(auto&v:p.tool)v=x[n++];int boxes=x[n++];if(boxes<0||boxes>8){p.version=0;return p;}for(int i=0;i<boxes;i++){Box b;for(auto&v:b.min)v=x[n++];for(auto&v:b.max)v=x[n++];p.boxes.push_back(b);}return p;}
-#define API extern "C" __attribute__((visibility("default"))) __attribute__((used))
-API int airobot_validate(const double*values){return unpack(values).valid();}
-API int airobot_plan(const double*values,const double*current,const double*tcp,int speed,double*out){auto p=unpack(values);Joints from{},q{};for(int i=0;i<7;i++)from[i]=current[i];if(!p.valid()||!inverse(p,{tcp[0],tcp[1],tcp[2]},from,speed,q))return 0;for(int i=0;i<7;i++)out[i]=q[i];return 1;}
-API int airobot_path(const double*values,const double*from,const double*to,int speed){auto p=unpack(values);Joints a{},b{};for(int i=0;i<7;i++){a[i]=from[i];b[i]=to[i];}return p.valid()&&trajectoryLegal(p,a,b,speed);}
-API int airobot_forward(const double*values,const double*current,double*out){auto p=unpack(values);Joints q{};for(int i=0;i<7;i++)q[i]=current[i];if(!p.valid()||!p.geometryValidated||!p.legal(q))return 0;auto tcp=sub(forward(p,q).position,forward(p,p.home).position);for(int i=0;i<3;i++)out[i]=tcp[i];return 1;}
-API void* airobot_create(const double*values){auto*c=new Core;c->configure(unpack(values));return c;}
-API void airobot_destroy(void*p){delete static_cast<Core*>(p);}
-API int airobot_command(void*p,int type,const double*values,int speed,int64_t now){auto&c=*static_cast<Core*>(p);Joints q{};if(values)for(int i=0;i<7;i++)q[i]=values[i];switch(type){case 1:return c.reference(q);case 2:return c.enable(now);case 3:c.latch();return 1;case 4:return c.reset();case 5:c.stop(now,"operator-stop");return 1;case 6:c.beat(now);return c.acknowledge();case 7:return c.run({{q,speed,0}},now);default:return 0;}}
-API int airobot_program(void*p,const double*steps,int count,int64_t now){if(count<1||count>32)return 0;std::vector<Step> plan;for(int i=0;i<count;i++){Step s;for(int j=0;j<7;j++)s.target[j]=steps[i*9+j];s.speed=steps[i*9+7];s.pauseMs=steps[i*9+8];plan.push_back(s);}return static_cast<Core*>(p)->run(plan,now);}
-API int airobot_tick(void*p,int64_t now,int connected,double*out){auto&c=*static_cast<Core*>(p);if(connected)c.beat(now);c.tick(now,connected);for(int i=0;i<7;i++)out[i]=c.q[i];out[7]=c.referenced;return int(c.state);}
+static Profile unpack(const double *x) {
+  Profile p;
+  p.hash = std::string(64, '0');
+  p.version = 1;
+  p.homeRevision = 1;
+  p.calibrated = x[0] != 0;
+  p.geometryValidated = x[1] != 0;
+  p.heartbeatMs = 1000;
+  p.maxTickMs = 100;
+  p.linkRadius = x[2];
+  int n = 3;
+  for (auto a : {&p.minimum, &p.maximum, &p.home, &p.velocity, &p.acceleration})
+    for (double &v : *a)
+      v = x[n++];
+  for (auto &s : p.servos) {
+    s.joint = x[n++];
+    s.channel = x[n++];
+    s.zero = x[n++];
+    s.offset = x[n++];
+    s.ratio = x[n++];
+    s.min = x[n++];
+    s.max = x[n++];
+    s.pulseMin = x[n++];
+    s.pulseMax = x[n++];
+  }
+  for (auto &a : p.axes) {
+    for (auto &v : a.origin)
+      v = x[n++];
+    for (auto &v : a.axis)
+      v = x[n++];
+  }
+  for (auto &v : p.tool)
+    v = x[n++];
+  int boxes = x[n++];
+  if (boxes < 0 || boxes > 8) {
+    p.version = 0;
+    return p;
+  }
+  for (int i = 0; i < boxes; i++) {
+    Box b;
+    for (auto &v : b.min)
+      v = x[n++];
+    for (auto &v : b.max)
+      v = x[n++];
+    p.boxes.push_back(b);
+  }
+  return p;
+}
+#define API                                                                    \
+  extern "C" __attribute__((visibility("default"))) __attribute__((used))
+API int airobot_validate(const double *values) {
+  return unpack(values).valid();
+}
+API int airobot_plan(const double *values, const double *current,
+                     const double *tcp, int speed, double *out) {
+  auto p = unpack(values);
+  Joints from{}, q{};
+  for (int i = 0; i < 7; i++)
+    from[i] = current[i];
+  if (!p.valid() || !inverse(p, {tcp[0], tcp[1], tcp[2]}, from, speed, q))
+    return 0;
+  for (int i = 0; i < 7; i++)
+    out[i] = q[i];
+  return 1;
+}
+API int airobot_plan_current(const double *values, const double *current,
+                     const double *tcp, int speed, double *out) {
+  auto p = unpack(values);
+  Joints from{}, q{};
+  for (int i = 0; i < 7; i++)
+    from[i] = current[i];
+  if (!p.valid() || !inverse(p, {tcp[0], tcp[1], tcp[2]}, from, speed, q, true))
+    return 0;
+  for (int i = 0; i < 7; i++)
+    out[i] = q[i];
+  return 1;
+}
+API int airobot_plan_pose(const double *values, const double *current,
+                          const double *tcp, const double *orientation,
+                          int speed, double *out) {
+  auto p = unpack(values);
+  Joints from{}, q{};
+  Mat r{};
+  for (int i = 0; i < 7; i++) from[i] = current[i];
+  for (int i = 0; i < 9; i++) r[i] = orientation[i];
+  if (!p.valid() || !inverse(p, {tcp[0],tcp[1],tcp[2]}, from, speed, q, false, &r)) return 0;
+  for (int i = 0; i < 7; i++) out[i] = q[i];
+  return 1;
+}
+API int airobot_orientation(const double *values, const double *current, double *out) {
+  auto p = unpack(values);
+  Joints q{};
+  for (int i = 0; i < 7; i++) q[i] = current[i];
+  if (!p.valid() || !p.geometryValidated || !p.legal(q)) return 0;
+  auto r = forward(p,q).orientation;
+  for (int i = 0; i < 9; i++) out[i] = r[i];
+  return 1;
+}
+API int airobot_path(const double *values, const double *from, const double *to,
+                     int speed) {
+  auto p = unpack(values);
+  Joints a{}, b{};
+  for (int i = 0; i < 7; i++) {
+    a[i] = from[i];
+    b[i] = to[i];
+  }
+  return p.valid() && trajectoryLegal(p, a, b, speed);
+}
+API int airobot_forward(const double *values, const double *current,
+                        double *out) {
+  auto p = unpack(values);
+  Joints q{};
+  for (int i = 0; i < 7; i++)
+    q[i] = current[i];
+  if (!p.valid() || !p.geometryValidated || !p.legal(q))
+    return 0;
+  auto tcp = sub(forward(p, q).position, forward(p, p.home).position);
+  for (int i = 0; i < 3; i++)
+    out[i] = tcp[i];
+  return 1;
+}
+API void *airobot_create(const double *values) {
+  auto *c = new Core;
+  c->configure(unpack(values));
+  return c;
+}
+API void airobot_destroy(void *p) { delete static_cast<Core *>(p); }
+API int airobot_command(void *p, int type, const double *values, int speed,
+                        int64_t now) {
+  auto &c = *static_cast<Core *>(p);
+  Joints q{};
+  if (values)
+    for (int i = 0; i < 7; i++)
+      q[i] = values[i];
+  switch (type) {
+  case 1:
+    return c.reference(q);
+  case 2:
+    return c.enable(now);
+  case 3:
+    c.latch();
+    return 1;
+  case 4:
+    return c.reset();
+  case 5:
+    c.stop(now, "operator-stop");
+    return 1;
+  case 6:
+    c.beat(now);
+    return c.acknowledge();
+  case 7:
+    c.lastTick = now;
+    return c.run({{q, speed, 0}}, now);
+  default:
+    return 0;
+  }
+}
+API int airobot_program(void *p, const double *steps, int count, int64_t now) {
+  if (count < 1 || count > 32)
+    return 0;
+  std::vector<Step> plan;
+  for (int i = 0; i < count; i++) {
+    Step s;
+    for (int j = 0; j < 7; j++)
+      s.target[j] = steps[i * 9 + j];
+    s.speed = steps[i * 9 + 7];
+    s.pauseMs = steps[i * 9 + 8];
+    plan.push_back(s);
+  }
+  return static_cast<Core *>(p)->run(plan, now);
+}
+API int airobot_tick(void *p, int64_t now, int connected, double *out) {
+  auto &c = *static_cast<Core *>(p);
+  if (connected)
+    c.beat(now);
+  c.tick(now, connected);
+  for (int i = 0; i < 7; i++)
+    out[i] = c.q[i];
+  out[7] = c.referenced;
+  return int(c.state);
+}

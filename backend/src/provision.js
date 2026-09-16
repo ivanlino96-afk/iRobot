@@ -1,6 +1,46 @@
 // Operator-only CLI: generates device identity and one-use pairing QR payload.
-import {Pool} from 'pg';import {writeFileSync,readFileSync,mkdirSync} from 'node:fs';import {Broker} from './broker.js';import {random,hash} from './security.js';
-const id=process.argv[2],directory=process.argv[3];if(!id||!/^[A-Za-z0-9_-]{1,48}$/.test(id)||!directory)throw Error('Usage: npm run provision -- ROBOT_ID OUTPUT_DIRECTORY');
-const db=new Pool({connectionString:process.env.DATABASE_URL});await db.query(readFileSync(new URL('./schema.sql',import.meta.url),'utf8'));let token=random(),username='robot-'+id,password=random();const broker=new Broker(process.env);await new Promise(resolve=>broker.client.once('connect',resolve));await broker.grant(username,password,id,0,true);
-try{await db.query('INSERT INTO robots(id,pairing_hash,pairing_expires) VALUES($1,$2,$3)',[id,hash(token),Date.now()+86400000]);}catch(e){await broker.revoke(username);throw e;}
-mkdirSync(directory,{recursive:true,mode:0o700});writeFileSync(directory+'/pairing.json',JSON.stringify({robotId:id,token}),{mode:0o600,flag:'wx'});writeFileSync(directory+'/device.json',JSON.stringify({robotId:id,mqttUsername:username,mqttPassword:password}),{mode:0o600,flag:'wx'});console.log('Device credentials and pairing payload written to the output directory.');await broker.close();await db.end();
+import { Pool } from "pg";
+import { writeFileSync, readFileSync, mkdirSync } from "node:fs";
+import { Broker } from "./broker.js";
+import { random, hash } from "./security.js";
+const id = process.argv[2],
+  directory = process.argv[3];
+if (!id || !/^[A-Za-z0-9_-]{1,48}$/.test(id) || !directory)
+  throw Error("Usage: npm run provision -- ROBOT_ID OUTPUT_DIRECTORY");
+const db = new Pool({ connectionString: process.env.DATABASE_URL });
+await db.query(readFileSync(new URL("./schema.sql", import.meta.url), "utf8"));
+let token = random(),
+  username = "robot-" + id,
+  password = random();
+const broker = new Broker(process.env);
+await new Promise((resolve) => broker.client.once("connect", resolve));
+await broker.grant(username, password, id, 0, true);
+try {
+  await db.query(
+    "INSERT INTO robots(id,pairing_hash,pairing_expires) VALUES($1,$2,$3)",
+    [id, hash(token), Date.now() + 86400000],
+  );
+} catch (e) {
+  await broker.revoke(username);
+  throw e;
+}
+mkdirSync(directory, { recursive: true, mode: 0o700 });
+writeFileSync(
+  directory + "/pairing.json",
+  JSON.stringify({ robotId: id, token }),
+  { mode: 0o600, flag: "wx" },
+);
+writeFileSync(
+  directory + "/device.json",
+  JSON.stringify({
+    robotId: id,
+    mqttUsername: username,
+    mqttPassword: password,
+  }),
+  { mode: 0o600, flag: "wx" },
+);
+console.log(
+  "Device credentials and pairing payload written to the output directory.",
+);
+await broker.close();
+await db.end();

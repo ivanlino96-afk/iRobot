@@ -31,3 +31,10 @@ La cinemática, serialización MQTT, límites, calibración, secuencias, pérdid
 ## 7. Jerarquía y decisiones pendientes
 
 Esta constitución fija invariantes; `spec.md` define comportamiento y aceptación, y `specs/001-airobot-master-control/plan.md` organiza contratos, entregas y pruebas. Las decisiones físicas pendientes se registran explícitamente y bloquean solo las funciones afectadas. Los cambios documentales describen requisitos por implementar, no certifican que el código actual los cumpla.
+
+
+## Ajuste de alcance — 13 de septiembre de 2026
+
+Por decisión del usuario, se pospone la autorización por propietario y las ACL específicas por robot. Todos los usuarios autenticados pueden consultar los robots registrados y solicitar su sesión de control. La asociación mediante QR es opcional para el acceso. Esta decisión prevalece sobre los apartados anteriores que exigen aislamiento por propietario.
+
+La conexión inicial confirma una respuesta del ESP32 y presenta un indicador de conexión en curso, éxito o error. No exige calibración ni programas guardados. Se mantienen TLS, autenticación general, vigencia de mensajes, validación de destino/arranque, sesión exclusiva y límites locales de movimiento. Conectar no habilita ni mueve servos. El simulador se identifica por separado.

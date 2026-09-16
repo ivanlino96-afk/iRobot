@@ -1,0 +1,75 @@
+# Dokploy: Compose Path = deployment/dokploy/compose.yaml
+# API domain: service api, container port 8080, HTTPS enabled.
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: airobot
+      POSTGRES_USER: airobot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a hexadecimal database password}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U airobot -d airobot]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [internal]
+
+  broker:
+    image: eclipse-mosquitto:2.0.22
+    restart: unless-stopped
+    user: "1883:1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ${AIROBOT_PRIVATE_DIR:?Set the absolute VPS secrets directory}/mqtt:/run/airobot:ro
+      - ${AIROBOT_PRIVATE_DIR}/broker:/mosquitto/data
+    ports:
+      - "8883:8883"
+    networks:
+      internal:
+        aliases:
+          - ${MQTT_PUBLIC_HOST:?Set the MQTT hostname}
+
+  api:
+    build:
+      context: ../..
+      dockerfile: deployment/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://airobot:${POSTGRES_PASSWORD}@postgres:5432/airobot
+      AUTH_SECRET: ${AUTH_SECRET:?Set an authentication secret}
+      SIGNING_KEY: /run/airobot/signing.pem
+      MQTT_URL: mqtts://${MQTT_PUBLIC_HOST}:8883
+      MQTT_CA: /run/mqtt/ca.crt
+      MQTT_ADMIN_USER: admin
+      MQTT_ADMIN_PASSWORD: ${MQTT_ADMIN_PASSWORD:?Set the broker administrator password}
+      MQTT_PUBLIC_HOST: ${MQTT_PUBLIC_HOST}
+      MQTT_PUBLIC_PORT: "8883"
+      BIND_ADDRESS: 0.0.0.0
+      PORT: "8080"
+    volumes:
+      - ${AIROBOT_PRIVATE_DIR}/api:/run/airobot:ro
+      - ${AIROBOT_PRIVATE_DIR}/mqtt/ca.crt:/run/mqtt/ca.crt:ro
+    expose: ["8080"]
+    networks: [internal, dokploy-network]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      broker:
+        condition: service_started
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  database:
+
+networks:
+  internal:
+  dokploy-network:
+    external: true

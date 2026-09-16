@@ -1,12 +1,121 @@
 #include "protocol.hpp"
 #include <cassert>
 #include <fstream>
-#include <sstream>
 #include <iostream>
+#include <sstream>
 using namespace airobot;
-int main(){std::ifstream f("contracts/profile.simulation.json");std::stringstream buffer;buffer<<f.rdbuf();Json p;assert(!deserializeJson(p,buffer.str()));Profile profile;profile.hash=std::string(64,'a');assert(parseProfile(p,profile));Runtime r("AR-1","boot");r.sha=[](const std::string&s){return s;};r.random=[](){static int i=0;return "nonce"+std::to_string(++i);};r.persist=[](const std::string&,const std::string&){return true;};std::string grantScope="control";r.verify=[&](const std::string&token,Json&c){if(token!="valid")return false;c["robotId"]="AR-1";c["bootId"]="boot";c["sessionId"]="session";c["sub"]="owner";c["scope"]=grantScope;c["expiresAtEpochMs"]=1700000015000LL;return true;};r.core.configure(profile);int sequence=0;auto envelope=[&](const char*type){Json c;c["schemaVersion"]=1;c["commandId"]="id"+std::to_string(++sequence);c["robotId"]="AR-1";c["bootId"]="boot";c["authorization"]="valid";c["controlSessionId"]="session";c["sequence"]=sequence;c["createdAtEpochMs"]=1700000000000LL;c["expiresAtEpochMs"]=1700000004000LL;c["profileVersion"]=1;c["profileHash"]=profile.hash;c["kinematicsVersion"]="ik-dls-1";c["type"]=type;c["payload"].to<JsonObject>();return c;};auto send=[&](Json&c,bool retain=false,bool emergency=false){std::string raw;serializeJson(c,raw);return r.handle(raw,retain,1700000000001ULL,100,emergency);};
- auto c=envelope("openSession");assert(send(c)["status"]=="accepted");c=envelope("confirmReference");for(auto x:profile.home)c["payload"]["jointDegrees"].add(x);c["payload"]["operatorConfirmed"]=true;assert(send(c)["status"]=="accepted");c=envelope("enable");assert(send(c)["status"]=="accepted");c=envelope("moveJoint");c["payload"]["joint"]=256;c["payload"]["degrees"]=0;c["payload"]["speedPercent"]=10;assert(send(c)["status"]=="rejected");assert(r.core.state==State::READY);c=envelope("goHome");c["payload"]["speedPercent"]=10;assert(send(c,true)["reason"]=="retained");auto old=c;old["bootId"]="old";assert(send(old)["status"]=="rejected");old=c;old["expiresAtEpochMs"]=1700000000000LL;assert(send(old)["reason"]=="expiry");
- c=envelope("emergencyStop");assert(send(c,false,true)["status"]=="accepted");auto latch=r.latchId;assert(r.core.state==State::ESTOP_LATCHED);assert(send(c,false,true)["status"]=="accepted");assert(r.latchId==latch);grantScope="recovery";c=envelope("openSession");assert(send(c)["status"]=="accepted");c=envelope("resetLatch");c["payload"]["latchId"]=latch;c["payload"]["resetNonce"]=r.resetNonce;assert(send(c)["status"]=="accepted");assert(r.core.state==State::BOOT_LOCKED&&!r.core.referenced);assert(send(c)["status"]=="rejected");
- auto malformed=p;malformed["servos"][2]["pcaChannel"]=1;Profile bad;bad.hash=profile.hash;assert(!parseProfile(malformed,bad));
- std::cout<<"Protocol: schema, retained/expired orders, boot isolation, calibrated reference, atomic J2 and nonce reset passed\n";
+int main() {
+  std::ifstream f("contracts/profile.simulation.json");
+  std::stringstream buffer;
+  buffer << f.rdbuf();
+  Json p;
+  assert(!deserializeJson(p, buffer.str()));
+  Profile profile;
+  profile.hash = std::string(64, 'a');
+  assert(parseProfile(p, profile));
+  Runtime r("AR-1", "boot");
+  r.sha = [](const std::string &s) { return s; };
+  r.random = []() {
+    static int i = 0;
+    return "nonce" + std::to_string(++i);
+  };
+  r.persist = [](const std::string &, const std::string &) { return true; };
+  std::string grantScope = "control";
+  r.verify = [&](const std::string &token, Json &c) {
+    if (token != "valid")
+      return false;
+    c["robotId"] = "AR-1";
+    c["bootId"] = "boot";
+    c["sessionId"] = "session";
+    c["sub"] = "owner";
+    c["scope"] = grantScope;
+    c["expiresAtEpochMs"] = 1700000015000LL;
+    return true;
+  };
+  r.core.configure(profile);
+  int sequence = 0;
+  auto envelope = [&](const char *type) {
+    Json c;
+    c["schemaVersion"] = 1;
+    c["commandId"] = "id" + std::to_string(++sequence);
+    c["robotId"] = "AR-1";
+    c["bootId"] = "boot";
+    c["authorization"] = "valid";
+    c["controlSessionId"] = "session";
+    c["sequence"] = sequence;
+    c["createdAtEpochMs"] = 1700000000000LL;
+    c["expiresAtEpochMs"] = 1700000004000LL;
+    c["profileVersion"] = 1;
+    c["profileHash"] = profile.hash;
+    c["kinematicsVersion"] = "ik-dls-1";
+    c["type"] = type;
+    c["payload"].to<JsonObject>();
+    return c;
+  };
+  auto send = [&](Json &c, bool retain = false, bool emergency = false) {
+    std::string raw;
+    serializeJson(c, raw);
+    return r.handle(raw, retain, 1700000000001ULL, 100, emergency);
+  };
+  auto c = envelope("openSession");
+  assert(send(c)["status"] == "accepted");
+  c = envelope("confirmReference");
+  for (auto x : profile.home)
+    c["payload"]["jointDegrees"].add(x);
+  c["payload"]["operatorConfirmed"] = true;
+  assert(send(c)["status"] == "accepted");
+  c = envelope("enable");
+  assert(send(c)["status"] == "accepted");
+  c = envelope("moveJoint");
+  c["payload"]["joint"] = 256;
+  c["payload"]["degrees"] = 0;
+  c["payload"]["speedPercent"] = 10;
+  assert(send(c)["status"] == "rejected");
+  assert(r.core.state == State::READY);
+  c = envelope("moveTcp");
+  for (int i = 0; i < 3; i++) c["payload"]["tcp"].add(0);
+  c["payload"]["speedPercent"] = 10;
+  c["payload"]["pauseMs"] = 0;
+  c["payload"]["gripperDegrees"] = 0;
+  c["payload"]["orientation"] = "invalid";
+  assert(send(c)["status"] == "rejected");
+  c["commandId"] = "current-orientation";
+  c["sequence"] = ++sequence;
+  c["payload"]["orientation"] = "current";
+  assert(send(c)["status"] == "accepted");
+  assert(r.core.state == State::EXECUTING);
+  r.core.stop(100, "test");
+  r.core.tick(120, true);
+  assert(r.core.acknowledge());
+  c = envelope("goHome");
+  c["payload"]["speedPercent"] = 10;
+  assert(send(c, true)["reason"] == "retained");
+  auto old = c;
+  old["bootId"] = "old";
+  assert(send(old)["status"] == "rejected");
+  old = c;
+  old["expiresAtEpochMs"] = 1700000000000LL;
+  assert(send(old)["reason"] == "expiry");
+  c = envelope("emergencyStop");
+  assert(send(c, false, true)["status"] == "accepted");
+  auto latch = r.latchId;
+  assert(r.core.state == State::ESTOP_LATCHED);
+  assert(send(c, false, true)["status"] == "accepted");
+  assert(r.latchId == latch);
+  grantScope = "recovery";
+  c = envelope("openSession");
+  assert(send(c)["status"] == "accepted");
+  c = envelope("resetLatch");
+  c["payload"]["latchId"] = latch;
+  c["payload"]["resetNonce"] = r.resetNonce;
+  assert(send(c)["status"] == "accepted");
+  assert(r.core.state == State::BOOT_LOCKED && !r.core.referenced);
+  assert(send(c)["status"] == "rejected");
+  auto malformed = p;
+  malformed["servos"][2]["pcaChannel"] = 1;
+  Profile bad;
+  bad.hash = profile.hash;
+  assert(!parseProfile(malformed, bad));
+  std::cout << "Protocol: schema, retained/expired orders, boot isolation, "
+               "calibrated reference, atomic J2 and nonce reset passed\n";
 }

@@ -1,6 +1,94 @@
 // MQTT bridge to the same C++ Runtime used on the ESP32, without hardware outputs.
-import mqtt from 'mqtt';import {readFileSync,mkdirSync} from 'node:fs';import {spawn} from 'node:child_process';import {createInterface} from 'node:readline';import {resolve} from 'node:path';
-const device=JSON.parse(readFileSync(process.argv[2]));const profile=resolve(process.argv[3]||'../contracts/profile.simulation.json');const env=process.env;const dir=resolve('../.build/simulator-'+device.robotId);mkdirSync(dir,{recursive:true});const child=spawn(resolve('../.build/simulator'),[device.robotId,profile,resolve(env.PUBLIC_KEY),dir],{stdio:['pipe','pipe','inherit']});const prefix=`airobot/v1/robots/${device.robotId}/`;const client=mqtt.connect(env.MQTT_URL,{username:device.mqttUsername,password:device.mqttPassword,ca:readFileSync(env.MQTT_CA),rejectUnauthorized:true,clean:true,will:{topic:prefix+'availability',payload:Buffer.from('offline'),qos:1,retain:true}});let lastState,lastPublished=0;
-const clock=()=>({monoMs:Math.floor(performance.now()),epochMs:Date.now()});
-client.on('connect',()=>{client.subscribe(['command','config','emergency'].map(s=>prefix+s),{qos:1});if(lastState)client.publish(prefix+'state',JSON.stringify(lastState),{qos:1,retain:true});});client.on('message',(topic,raw,packet)=>{child.stdin.write(JSON.stringify({kind:'command',raw:raw.toString(),retained:packet.retain,emergency:topic===prefix+'emergency',...clock()})+'\n');});
-createInterface({input:child.stdout}).on('line',line=>{let m=JSON.parse(line);if(m.topic==='state'){lastState=m.payload;if(Date.now()-lastPublished<200)return;lastPublished=Date.now();}if(client.connected)client.publish(prefix+m.topic,JSON.stringify(m.payload),{qos:1,retain:m.topic==='state'});});const timer=setInterval(()=>child.stdin.write(JSON.stringify({kind:'tick',connected:client.connected,...clock()})+'\n'),20);child.on('exit',code=>{clearInterval(timer);client.end(true);process.exitCode=code||0;});process.on('SIGINT',()=>{clearInterval(timer);child.stdin.end();client.end(true);});
+import mqtt from "mqtt";
+import { readFileSync, mkdirSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
+import { resolve } from "node:path";
+const device = JSON.parse(readFileSync(process.argv[2]));
+const profile = resolve(
+  process.argv[3] || "../contracts/profile.simulation.json",
+);
+const env = process.env;
+const dir = resolve("../.build/simulator-" + device.robotId);
+mkdirSync(dir, { recursive: true });
+const child = spawn(
+  resolve("../.build/simulator"),
+  [device.robotId, profile, resolve(env.PUBLIC_KEY), dir],
+  { stdio: ["pipe", "pipe", "inherit"] },
+);
+const prefix = `airobot/v1/robots/${device.robotId}/`;
+const client = mqtt.connect(env.MQTT_URL, {
+  username: device.mqttUsername,
+  password: device.mqttPassword,
+  ca: readFileSync(env.MQTT_CA),
+  rejectUnauthorized: true,
+  clean: true,
+  will: {
+    topic: prefix + "availability",
+    payload: Buffer.from("offline"),
+    qos: 1,
+    retain: true,
+  },
+});
+let lastState,
+  lastPublished = 0;
+const clock = () => ({
+  monoMs: Math.floor(performance.now()),
+  epochMs: Date.now(),
+});
+client.on("connect", () => {
+  client.subscribe(
+    ["command", "config", "emergency"].map((s) => prefix + s),
+    { qos: 1 },
+  );
+  if (lastState)
+    client.publish(prefix + "state", JSON.stringify(lastState), {
+      qos: 1,
+      retain: true,
+    });
+});
+client.on("message", (topic, raw, packet) => {
+  child.stdin.write(
+    JSON.stringify({
+      kind: "command",
+      raw: raw.toString(),
+      retained: packet.retain,
+      emergency: topic === prefix + "emergency",
+      ...clock(),
+    }) + "\n",
+  );
+});
+createInterface({ input: child.stdout }).on("line", (line) => {
+  let m = JSON.parse(line);
+  if (m.topic === "state") {
+    lastState = m.payload;
+    if (Date.now() - lastPublished < 200) return;
+    lastPublished = Date.now();
+  }
+  if (client.connected)
+    client.publish(prefix + m.topic, JSON.stringify(m.payload), {
+      qos: 1,
+      retain: m.topic === "state",
+    });
+});
+const timer = setInterval(
+  () =>
+    child.stdin.write(
+      JSON.stringify({
+        kind: "tick",
+        connected: client.connected,
+        ...clock(),
+      }) + "\n",
+    ),
+  20,
+);
+child.on("exit", (code) => {
+  clearInterval(timer);
+  client.end(true);
+  process.exitCode = code || 0;
+});
+process.on("SIGINT", () => {
+  clearInterval(timer);
+  child.stdin.end();
+  client.end(true);
+});

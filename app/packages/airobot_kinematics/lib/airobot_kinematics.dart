@@ -36,8 +36,11 @@ class NativeKinematics {
     List<double> profile,
     List<double> from,
     List<double> tcp,
-    int speed,
-  ) {
+    int speed, {
+    bool keepOrientation = false,
+    List<double>? orientation,
+  }) {
+    if (orientation != null) return planPose(profile, from, tcp, speed, orientation);
     final p = _copy(profile),
         a = _copy(from),
         b = _copy(tcp),
@@ -59,7 +62,7 @@ class NativeKinematics {
               int,
               Pointer<Double>,
             )
-          >('airobot_plan');
+          >(keepOrientation ? 'airobot_plan_current' : 'airobot_plan');
       if (fn(p, a, b, speed, out) != 1) {
         throw StateError(
           'Destino u orientación fuera de alcance, límites o trayectoria válida',
@@ -72,6 +75,25 @@ class NativeKinematics {
       calloc.free(b);
       calloc.free(out);
     }
+  }
+
+  List<double> planPose(List<double> profile, List<double> from, List<double> tcp, int speed, List<double> orientation) {
+    if (orientation.length != 9 || orientation.any((v) => !v.isFinite)) throw const FormatException('Orientación inválida');
+    final p = _copy(profile), a = _copy(from), b = _copy(tcp), r = _copy(orientation), out = calloc<Double>(7);
+    try {
+      final ok = lib.lookupFunction<Int32 Function(Pointer<Double>, Pointer<Double>, Pointer<Double>, Pointer<Double>, Int32, Pointer<Double>), int Function(Pointer<Double>, Pointer<Double>, Pointer<Double>, Pointer<Double>, int, Pointer<Double>)>('airobot_plan_pose')(p,a,b,r,speed,out);
+      if (ok != 1) throw StateError('Destino u orientación fuera de alcance');
+      return List.of(out.asTypedList(7));
+    } finally { calloc.free(p); calloc.free(a); calloc.free(b); calloc.free(r); calloc.free(out); }
+  }
+
+  List<double> orientation(List<double> profile, List<double> joints) {
+    final p = _copy(profile), a = _copy(joints), out = calloc<Double>(9);
+    try {
+      final ok = lib.lookupFunction<Int32 Function(Pointer<Double>, Pointer<Double>, Pointer<Double>), int Function(Pointer<Double>, Pointer<Double>, Pointer<Double>)>('airobot_orientation')(p,a,out);
+      if (ok != 1) throw StateError('Orientación no disponible');
+      return List.of(out.asTypedList(9));
+    } finally { calloc.free(p); calloc.free(a); calloc.free(out); }
   }
 
   bool path(

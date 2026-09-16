@@ -17,6 +17,8 @@ class RobotProfile {
   late final List<double> nativeValues;
   int get version => json['version'] as int;
   List<double> get home => numbers(json['home'], 7);
+  List<double> get minimum => numbers(json['minimum'], 7);
+  List<double> get maximum => numbers(json['maximum'], 7);
   bool get calibrated => json['calibrated'] == true;
   bool get geometry => json['geometryValidated'] == true;
   static List<double> numbers(dynamic value, int length) {
@@ -122,35 +124,51 @@ class RobotSnapshot {
 
 class ProgramStep {
   ProgramStep({
-    required this.tcp,
+    required List<double> tcp,
     required this.gripper,
     required this.speed,
     required this.pauseMs,
-  }) {
-    if (tcp.length != 3 ||
-        tcp.any((x) => !x.isFinite) ||
-        !gripper.isFinite ||
-        speed < 1 ||
-        speed > 100 ||
-        pauseMs < 0 ||
-        pauseMs > 600000) {
+    this.name = '',
+    this.wristDegrees,
+    List<double>? orientation,
+  }) : tcp = List.unmodifiable(tcp), orientation = orientation == null ? null : List.unmodifiable(orientation) {
+    if (tcp.length != 3 || tcp.any((x) => !x.isFinite) || !gripper.isFinite ||
+        speed < 1 || speed > 100 || pauseMs < 0 || pauseMs > 600000 || name.length > 80 ||
+        (wristDegrees != null && !wristDegrees!.isFinite) ||
+        (orientation != null && !validOrientation(orientation))) {
       throw const FormatException('Paso inválido');
     }
   }
+  static bool validOrientation(List<double> r) {
+    if (r.length != 9 || r.any((x) => !x.isFinite)) return false;
+    for (int i = 0; i < 3; i++) {
+      for (int j = 0; j < 3; j++) {
+        double dot = 0;
+        for (int k = 0; k < 3; k++) { dot += r[i*3+k]*r[j*3+k]; }
+        if ((dot - (i == j ? 1 : 0)).abs() > 1e-5) return false;
+      }
+    }
+    final det = r[0]*(r[4]*r[8]-r[5]*r[7])-r[1]*(r[3]*r[8]-r[5]*r[6])+r[2]*(r[3]*r[7]-r[4]*r[6]);
+    return (det-1).abs() < 1e-5;
+  }
+  final String name;
   final List<double> tcp;
+  final List<double>? orientation;
+  final double? wristDegrees;
   final double gripper;
   final int speed, pauseMs;
+  ProgramStep renamed(String value) => ProgramStep(tcp: tcp, gripper: gripper, speed: speed, pauseMs: pauseMs, name: value, orientation: orientation, wristDegrees: wristDegrees);
   Map<String, dynamic> toJson() => {
-    'tcp': tcp,
-    'gripperDegrees': gripper,
-    'speedPercent': speed,
-    'pauseMs': pauseMs,
+    'tcp': tcp, 'gripperDegrees': gripper, 'speedPercent': speed, 'pauseMs': pauseMs,
+    if (name.isNotEmpty) 'name': name,
+    if (orientation != null) 'orientationMatrix': orientation,
+    if (wristDegrees != null) 'wristDegrees': wristDegrees,
   };
   factory ProgramStep.fromJson(Map<String, dynamic> j) => ProgramStep(
-    tcp: RobotProfile.numbers(j['tcp'], 3),
-    gripper: (j['gripperDegrees'] as num).toDouble(),
-    speed: j['speedPercent'] as int,
-    pauseMs: j['pauseMs'] as int,
+    tcp: RobotProfile.numbers(j['tcp'], 3), gripper: (j['gripperDegrees'] as num).toDouble(),
+    speed: j['speedPercent'] as int, pauseMs: j['pauseMs'] as int,
+    name: j['name'] as String? ?? '', wristDegrees: (j['wristDegrees'] as num?)?.toDouble(),
+    orientation: j['orientationMatrix'] == null ? null : RobotProfile.numbers(j['orientationMatrix'],9),
   );
 }
 
@@ -159,7 +177,11 @@ abstract class RobotRepository {
   Future<void> command(String type, Map<String, dynamic> payload);
   Future<void> activateProfile(RobotProfile profile);
   Future<List<Map<String, dynamic>>> programs();
-  Future<void> saveProgram(String name, Map<String, dynamic> body);
+  Future<void> saveProgram(
+    String name,
+    Map<String, dynamic> body, {
+    String? sourceId,
+  });
   Future<void> deleteProgram(String id);
   Future<void> dispose();
 }

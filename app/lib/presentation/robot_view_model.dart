@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:crypto/crypto.dart';
@@ -9,7 +10,33 @@ import '../data/simulator_repository.dart';
 import '../data/mqtt_robot_repository.dart';
 import '../infrastructure/api_client.dart';
 
+Future<List<double>> solveTcp(
+  List<double> profile,
+  List<double> from,
+  List<double> target,
+  int speed, {
+  bool keepOrientation = false,
+}) => Isolate.run(
+  () => NativeKinematics().plan(
+    profile,
+    from,
+    target,
+    speed,
+    keepOrientation: keepOrientation,
+  ),
+);
+
 class RobotViewModel extends ChangeNotifier {
+  int commandGeneration = 0;
+  String? editingProgramId;
+  void ensureMotion(int generation) {
+    if (generation != commandGeneration ||
+        !snapshot.canMove ||
+        profile?.hash != snapshot.profileHash) {
+      throw StateError('El movimiento se canceló o cambió el estado del robot');
+    }
+  }
+
   RobotRepository? repository;
   RobotProfile? profile;
   RobotSnapshot snapshot = const RobotSnapshot();
@@ -17,21 +44,230 @@ class RobotViewModel extends ChangeNotifier {
   NativeKinematics? math;
   StreamSubscription? subscription;
   String message = 'Conecta tu robot o explora el simulador', robotId = '';
+  String robotName = 'MKT100';
+  void setRobotName(String name) {
+    if (name.trim().isNotEmpty) {
+      robotName = name.trim();
+      notifyListeners();
+    }
+  }
+
+  bool connecting = false;
+  bool get simulationMode => repository is SimulatorRepository;
+  String get stateLabel => switch (snapshot.state) {
+    'READY' => 'Listo',
+    'EXECUTING' => 'En movimiento',
+    'STOPPING' => 'Deteniendo',
+    'HOLD' => 'En pausa',
+    'BOOT_LOCKED' => 'Desarmado',
+    'UNCALIBRATED' => 'Sin calibrar',
+    'CALIBRATING' => 'Calibrando',
+    'FAULT' => 'Revisar robot',
+    'ESTOP_LATCHED' => 'Bloqueado',
+    _ => 'Sin conexión',
+  };
+
+  Future<void> setSimulationMode(bool enabled) async {
+    if (enabled == simulationMode) return;
+    commandGeneration++;
+    if (enabled) {
+      if (repository != null && snapshot.connected) await send('stop');
+      await demo();
+      await reference(profile!.home);
+      await send('enable');
+    } else {
+      await subscription?.cancel();
+      subscription = null;
+      await repository?.dispose();
+      repository = null;
+      profile = null;
+      snapshot = const RobotSnapshot();
+      robotId = '';
+      saved = [];
+      steps.clear();
+      editingProgramId = null;
+    }
+    connectionError = null;
+    notifyListeners();
+  }
+
+  String? connectionError;
+  String get connectionLabel => connecting
+      ? 'Conectando…'
+      : robotId == 'SIMULADOR' && snapshot.connected
+      ? 'Simulador'
+      : snapshot.connected
+      ? 'ESP32 conectado'
+      : connectionError != null
+      ? 'Error de conexión'
+      : 'Conectar';
+  String motionStatus = '';
+  bool motionPopupVisible = false;
+  bool motionUnconfirmed = false;
+  bool emergencyPending = false;
+
+  void dismissMotionNotice() {
+    if (!motionUnconfirmed) return;
+    motionPopupVisible = false;
+    notifyListeners();
+  }
+
+  Future<void> emergencyStopMotion() async {
+    if (emergencyPending) return;
+    holding = false;
+    _holdEpoch++;
+    emergencyPending = true;
+    motionStatus = 'Solicitando parada de emergencia…';
+    notifyListeners();
+    try {
+      await send('emergencyStop');
+      // Only telemetry confirms that the robot has stopped.
+    } catch (_) {
+      motionUnconfirmed = true;
+      motionStatus =
+          'No se pudo confirmar la parada. Revisa la conexión y utiliza la parada física.';
+      rethrow;
+    } finally {
+      emergencyPending = false;
+      notifyListeners();
+    }
+  }
+
+  int _motionCompletions = 0;
+  bool holding = false;
+  int _holdEpoch = 0;
+  bool get canReference =>
+      !busy &&
+      snapshot.connected &&
+      snapshot.state == 'BOOT_LOCKED' &&
+      profile?.calibrated == true;
+
+  Future<void> stopMotion() async {
+    holding = false;
+    _holdEpoch++;
+    motionStatus = 'Deteniendo movimiento…';
+    notifyListeners();
+    try {
+      await send('stop');
+      if (snapshot.state == 'HOLD') motionStatus = 'Movimiento detenido';
+    } catch (_) {
+      motionStatus = 'Parada sin confirmar';
+      rethrow;
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  /// Repeats bounded, firmware-validated targets. Never queues ahead of READY.
+  /// Releasing, leaving the screen or the 10 s deadline cancels pending IK.
+  Future<void> holdJog(Future<void> Function() step) async {
+    if (!canMove || holding) return;
+    holding = true;
+    final epoch = ++_holdEpoch;
+    final deadline = DateTime.now().add(const Duration(seconds: 10));
+    final cutoff = Timer(const Duration(seconds: 10), () {
+      if (epoch == _holdEpoch) {
+        stopMotion().catchError((Object e) {
+          message = '$e';
+        });
+      }
+    });
+    notifyListeners();
+    try {
+      while (holding &&
+          epoch == _holdEpoch &&
+          DateTime.now().isBefore(deadline)) {
+        if (!snapshot.connected ||
+            ['FAULT', 'ESTOP_LATCHED', 'HOLD'].contains(snapshot.state)) {
+          break;
+        }
+        if (snapshot.canMove) {
+          final completed = _motionCompletions;
+          await step();
+          // An acknowledgement alone must never enqueue another movement.
+          while (holding &&
+              epoch == _holdEpoch &&
+              _motionCompletions == completed &&
+              snapshot.connected &&
+              !['FAULT', 'ESTOP_LATCHED', 'HOLD'].contains(snapshot.state) &&
+              DateTime.now().isBefore(deadline)) {
+            await Future<void>.delayed(const Duration(milliseconds: 40));
+          }
+        } else {
+          await Future<void>.delayed(const Duration(milliseconds: 40));
+        }
+      }
+    } finally {
+      cutoff.cancel();
+      if (epoch == _holdEpoch) await stopMotion();
+    }
+  }
+
+  String? coordinateError(String text, {bool gripper = false}) {
+    final value = double.tryParse(text.replaceAll(',', '.'));
+    if (value == null || !value.isFinite) return 'Introduce un número válido';
+    if (gripper &&
+        profile != null &&
+        (value < profile!.minimum[6] || value > profile!.maximum[6])) {
+      return '${profile!.minimum[6]}–${profile!.maximum[6]}°';
+    }
+    return null;
+  }
+
   bool busy = false;
+  bool actionFailed = false;
+  String? actionFeedback;
   final steps = <ProgramStep>[];
   List<Map<String, dynamic>> saved = [];
   List<String> robots = [];
   bool get canMove =>
-      !busy && snapshot.canMove && profile?.hash == snapshot.profileHash;
+      !busy &&
+      !holding &&
+      snapshot.canMove &&
+      profile?.hash == snapshot.profileHash;
+  bool get canArm =>
+      !busy &&
+      snapshot.connected &&
+      snapshot.reference &&
+      profile?.hash == snapshot.profileHash &&
+      ['BOOT_LOCKED', 'HOLD'].contains(snapshot.state);
+  bool get canDisarm =>
+      !busy &&
+      snapshot.connected &&
+      ['READY', 'EXECUTING'].contains(snapshot.state);
+  Future<void> arm() async {
+    if (!snapshot.connected ||
+        !snapshot.reference ||
+        profile?.hash != snapshot.profileHash ||
+        !['BOOT_LOCKED', 'HOLD'].contains(snapshot.state)) {
+      throw StateError('Robot sin referencia o no disponible');
+    }
+    await send(snapshot.state == 'HOLD' ? 'acknowledgeHold' : 'enable');
+  }
+
+  Future<void> disarm() async {
+    if (!snapshot.connected ||
+        !['READY', 'EXECUTING'].contains(snapshot.state)) {
+      throw StateError('Robot no disponible');
+    }
+    await send('stop');
+  }
+
   Future<void> act(Future<void> Function() action) async {
-    if (busy) return;
+    if (busy || holding) return;
     busy = true;
+    actionFailed = false;
+    actionFeedback = null;
     notifyListeners();
     try {
       await action();
-      message = 'Operación confirmada';
+      message = actionFeedback ?? 'Cambios guardados';
     } catch (e) {
-      message = e.toString();
+      actionFailed = true;
+      message = e.toString().replaceFirst(
+        RegExp(r'^(Bad state: |StateError: |FormatException: )'),
+        '',
+      );
     } finally {
       busy = false;
       notifyListeners();
@@ -39,11 +275,45 @@ class RobotViewModel extends ChangeNotifier {
   }
 
   Future<void> attach(RobotRepository r) async {
+    commandGeneration++;
+    _holdEpoch++;
+    holding = false;
+    motionStatus = '';
+    motionPopupVisible = false;
+    motionUnconfirmed = false;
     await subscription?.cancel();
     await repository?.dispose();
     repository = r;
     subscription = r.states.listen((s) {
+      final previous = snapshot.state;
       snapshot = s;
+      if (!s.connected) {
+        holding = false;
+        _holdEpoch++;
+        commandGeneration++;
+        motionUnconfirmed = true;
+        motionStatus = 'Movimiento sin confirmar: conexión perdida';
+      } else if (s.state == 'EXECUTING') {
+        motionPopupVisible = true;
+        motionUnconfirmed = false;
+        motionStatus = 'En movimiento';
+      } else if (s.state == 'READY' && previous == 'EXECUTING') {
+        _motionCompletions++;
+        motionPopupVisible = holding;
+        motionUnconfirmed = false;
+        motionStatus = 'Movimiento completado';
+      } else if (s.state == 'HOLD') {
+        motionPopupVisible = false;
+        motionUnconfirmed = false;
+        motionStatus = 'Movimiento detenido';
+      } else if (['FAULT', 'ESTOP_LATCHED'].contains(s.state)) {
+        motionPopupVisible = false;
+        motionUnconfirmed = false;
+        motionStatus = 'Movimiento interrumpido';
+      }
+      if (!s.connected && !connecting && robotId != 'SIMULADOR') {
+        connectionError = 'Se perdió la comunicación con el ESP32';
+      }
       notifyListeners();
     });
   }
@@ -54,6 +324,8 @@ class RobotViewModel extends ChangeNotifier {
     profile = RobotProfile(raw, sha256.convert(utf8.encode(raw)).toString());
     robotId = 'SIMULADOR';
     await attach(SimulatorRepository(profile!, math!));
+    connectionError = null;
+    editingProgramId = null;
     saved = [];
     steps.clear();
   }
@@ -89,19 +361,37 @@ class RobotViewModel extends ChangeNotifier {
 
   Future<void> connect(String id) async {
     if (api == null) throw StateError('Inicia sesión');
-    robotId = id;
-    math ??= NativeKinematics();
+    connecting = true;
+    connectionError = null;
+    snapshot = snapshot.disconnected();
+    notifyListeners();
     try {
-      final p = await api!.get('/robots/$id/profile');
-      profile = RobotProfile(p['profileJson'], p['profileHash']);
-    } catch (_) {
+      robotId = id;
+      // Connection confirmation must not depend on calibration or saved programs.
       profile = null;
+      await api!.delete('/robots/$id/session');
+      final r = MqttRobotRepository(api!, id, null);
+      await attach(r);
+      await r.connect().timeout(const Duration(seconds: 15));
+      try {
+        final p = await api!.get('/robots/$id/profile');
+        profile = RobotProfile(p['profileJson'], p['profileHash']);
+        r.profile = profile;
+        math ??= NativeKinematics();
+        await loadPrograms();
+      } catch (e) {
+        message = 'ESP32 conectado. Configuración pendiente: $e';
+      }
+    } catch (e) {
+      await repository?.dispose();
+      repository = null;
+      snapshot = snapshot.disconnected();
+      connectionError = 'No se pudo confirmar la conexión con el ESP32: $e';
+      throw StateError(connectionError!);
+    } finally {
+      connecting = false;
+      notifyListeners();
     }
-    await api!.delete('/robots/$id/session');
-    final r = MqttRobotRepository(api!, id, profile);
-    await attach(r);
-    await r.connect();
-    await loadPrograms();
   }
 
   Future<void> send(
@@ -109,13 +399,61 @@ class RobotViewModel extends ChangeNotifier {
     Map<String, dynamic> payload = const {},
   ]) async {
     if (repository == null) throw StateError('Conecta primero');
-    await repository!.command(type, payload);
+    if (['stop', 'emergencyStop', 'resetLatch'].contains(type)) {
+      commandGeneration++;
+    }
+    final isMovement = [
+      'moveJoint',
+      'moveTcp',
+      'goHome',
+      'runProgram',
+    ].contains(type);
+    final generation = commandGeneration;
+    if (isMovement) {
+      motionPopupVisible = true;
+      motionUnconfirmed = false;
+      motionStatus = 'Enviando movimiento…';
+      notifyListeners();
+    }
+    try {
+      await repository!.command(type, payload);
+      if (isMovement &&
+          generation == commandGeneration &&
+          motionStatus == 'Enviando movimiento…') {
+        motionStatus = 'Orden aceptada · esperando ejecución';
+      }
+    } catch (_) {
+      if (isMovement && generation == commandGeneration) {
+        motionUnconfirmed = true;
+        motionStatus = 'Movimiento sin confirmar';
+      }
+      rethrow;
+    } finally {
+      notifyListeners();
+    }
+    if (isMovement && generation != commandGeneration) {
+      throw StateError('Movimiento cancelado por una parada');
+    }
+    actionFeedback = switch (type) {
+      'moveJoint' || 'moveTcp' => 'Movimiento enviado',
+      'goHome' => 'Regreso a home iniciado',
+      'stop' => 'Parada solicitada',
+      'emergencyStop' => 'Movimiento bloqueado',
+      'enable' || 'acknowledgeHold' => 'Control habilitado',
+      'resetLatch' => 'Bloqueo restablecido. Confirma la referencia',
+      'confirmReference' => 'Referencia confirmada',
+      'runProgram' => 'Programa iniciado',
+      'disconnectTest' => 'Pérdida de control simulada',
+      _ => 'Orden confirmada',
+    };
   }
 
   Future<void> reference(List<double> q) async =>
       send('confirmReference', {'jointDegrees': q, 'operatorConfirmed': true});
   Future<void> moveJoint(int joint, double degrees, int speed) async {
-    if (!snapshot.canMove || profile?.hash != snapshot.profileHash) { throw StateError('Robot no disponible'); }
+    if (!snapshot.canMove || profile?.hash != snapshot.profileHash) {
+      throw StateError('Robot no disponible');
+    }
     final to = List<double>.of(snapshot.joints)..[joint] = degrees;
     if (!math!.path(profile!.nativeValues, snapshot.joints, to, speed)) {
       throw StateError('Límites o trayectoria inválidos');
@@ -127,19 +465,67 @@ class RobotViewModel extends ChangeNotifier {
     });
   }
 
-  Future<void> tcp(List<double> target, int speed, double gripper) async {
-    final q = math!.plan(profile!.nativeValues, snapshot.joints, target, speed)
-      ..[6] = gripper;
-    if (!math!.path(profile!.nativeValues, snapshot.joints, q, speed)) {
-      throw StateError('Trayectoria inválida');
+  Future<void> tcp(
+    List<double> target,
+    int speed,
+    double gripper, {
+    bool keepOrientation = false,
+  }) async {
+    if (!snapshot.canMove ||
+        profile == null ||
+        profile?.hash != snapshot.profileHash) {
+      throw StateError('Robot no disponible');
     }
-    await send('moveTcp', {
-      'tcp': target,
-      'speedPercent': speed,
-      'gripperDegrees': gripper,
-      'pauseMs': 0,
-      'orientation': 'home',
-    });
+    final generation = commandGeneration;
+    motionPopupVisible = true;
+    motionUnconfirmed = false;
+    motionStatus = 'Validando trayectoria…';
+    notifyListeners();
+    try {
+      final q = await solveTcp(
+        profile!.nativeValues,
+        List.of(snapshot.joints),
+        target,
+        speed,
+        keepOrientation: keepOrientation,
+      );
+      q[6] = gripper;
+      ensureMotion(generation);
+      if (!math!.path(profile!.nativeValues, snapshot.joints, q, speed)) {
+        throw StateError('Trayectoria inválida');
+      }
+      await send('moveTcp', {
+        'tcp': target,
+        'speedPercent': speed,
+        'gripperDegrees': gripper,
+        'pauseMs': 0,
+        'orientation': keepOrientation ? 'current' : 'home',
+      });
+    } catch (_) {
+      if (generation == commandGeneration &&
+          motionStatus == 'Validando trayectoria…') {
+        motionPopupVisible = false;
+      }
+      rethrow;
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  Future<void> jogAxis(int axis, double millimeters, int speed) async {
+    if (!snapshot.canMove ||
+        snapshot.tcp == null ||
+        profile?.geometry != true) {
+      throw StateError('Posición TCP no disponible');
+    }
+    final target = List<double>.of(snapshot.tcp!);
+    target[axis] += millimeters;
+    await tcp(target, speed, snapshot.joints[6], keepOrientation: true);
+  }
+
+  Future<void> jogGripper(int joint, double degrees, int speed) async {
+    if (joint != 5 && joint != 6) throw ArgumentError('Articulación inválida');
+    await moveJoint(joint, snapshot.joints[joint] + degrees, speed);
   }
 
   void teach(int speed, int pause) {
@@ -171,7 +557,7 @@ class RobotViewModel extends ChangeNotifier {
     if (profile == null || steps.isEmpty || name.trim().isEmpty) {
       throw StateError('Agrega puntos y un nombre');
     }
-    await repository!.saveProgram(name, body());
+    await repository!.saveProgram(name, body(), sourceId: editingProgramId);
     await loadPrograms();
   }
 
@@ -199,6 +585,7 @@ class RobotViewModel extends ChangeNotifier {
   }
 
   void editProgram(Map<String, dynamic> p) {
+    editingProgramId = p['id'];
     steps.clear();
     for (final raw in p['body']['steps']) {
       steps.add(ProgramStep.fromJson(Map<String, dynamic>.from(raw)));
@@ -221,6 +608,7 @@ class RobotViewModel extends ChangeNotifier {
     await repository!.saveProgram(
       '${p['name']} · revisión',
       candidate['body'] as Map<String, dynamic>,
+      sourceId: p['id'],
     );
     await loadPrograms();
   }
@@ -257,6 +645,7 @@ class RobotViewModel extends ChangeNotifier {
 
   Future<void> suspend() async {
     try {
+      if (holding) await stopMotion();
       if (snapshot.canMove || snapshot.state == 'EXECUTING') await send('stop');
     } finally {
       if (repository is MqttRobotRepository) {
@@ -270,6 +659,9 @@ class RobotViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    holding = false;
+    _holdEpoch++;
+    commandGeneration++;
     subscription?.cancel();
     repository?.dispose();
     super.dispose();
