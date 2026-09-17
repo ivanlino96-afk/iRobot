@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'design_tokens.dart';
 
 /// Navigation only: account and robot operations remain outside the sidebar.
 class SidebarMenu extends StatefulWidget {
@@ -25,6 +26,7 @@ class _SidebarMenuState extends State<SidebarMenu> {
     'Programas',
     'Enseñar',
     'Configurar',
+    'Diagnóstico',
   ];
   static const icons = [
     Icons.home_outlined,
@@ -32,11 +34,13 @@ class _SidebarMenuState extends State<SidebarMenu> {
     Icons.playlist_play,
     Icons.add_location_alt_outlined,
     Icons.settings_outlined,
+    Icons.monitor_heart_outlined,
   ];
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final tokens = context.tokens;
     final open = widget.onClose != null || expanded;
     final duration = MediaQuery.disableAnimationsOf(context)
         ? Duration.zero
@@ -49,9 +53,9 @@ class _SidebarMenuState extends State<SidebarMenu> {
           ? const EdgeInsets.fromLTRB(12, 12, 0, 12)
           : EdgeInsets.zero,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: const Color(0xffe7ebf3)),
+        border: Border.all(color: tokens.cardBorder),
         boxShadow: const [
           BoxShadow(
             color: Color(0x080f2340),
@@ -133,8 +137,8 @@ class _SidebarMenuState extends State<SidebarMenu> {
                       ),
                       children: [
                         if (showLabels)
-                          const Padding(
-                            padding: EdgeInsets.fromLTRB(12, 0, 0, 12),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(12, 0, 0, 12),
                             child: Text(
                               'ESPACIO DE TRABAJO',
                               maxLines: 1,
@@ -142,7 +146,7 @@ class _SidebarMenuState extends State<SidebarMenu> {
                               style: TextStyle(
                                 fontSize: 10,
                                 letterSpacing: 1.1,
-                                color: Color(0xff8b95a5),
+                                color: tokens.muted,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -178,7 +182,7 @@ class _SidebarMenuState extends State<SidebarMenu> {
                                           size: 22,
                                           color: widget.selectedIndex == i
                                               ? colors.primary
-                                              : const Color(0xff718096),
+                                              : tokens.muted,
                                         ),
                                         if (showLabels) ...[
                                           const SizedBox(width: 14),
@@ -195,7 +199,7 @@ class _SidebarMenuState extends State<SidebarMenu> {
                                                     : FontWeight.w400,
                                                 color: widget.selectedIndex == i
                                                     ? colors.onPrimaryContainer
-                                                    : const Color(0xff596477),
+                                                    : tokens.ink,
                                               ),
                                             ),
                                           ),
@@ -217,7 +221,7 @@ class _SidebarMenuState extends State<SidebarMenu> {
                       margin: const EdgeInsets.all(12),
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        border: Border.all(color: const Color(0xffe7ebf3)),
+                        border: Border.all(color: tokens.cardBorder),
                         borderRadius: BorderRadius.circular(16),
                       ),
                       child: Row(
@@ -233,7 +237,7 @@ class _SidebarMenuState extends State<SidebarMenu> {
                           ),
                           if (showLabels) ...[
                             const SizedBox(width: 10),
-                            const Expanded(
+                            Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 mainAxisSize: MainAxisSize.min,
@@ -252,7 +256,7 @@ class _SidebarMenuState extends State<SidebarMenu> {
                                     overflow: TextOverflow.clip,
                                     style: TextStyle(
                                       fontSize: 11,
-                                      color: Color(0xff8b95a5),
+                                      color: tokens.muted,
                                     ),
                                   ),
                                 ],

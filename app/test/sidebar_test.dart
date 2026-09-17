@@ -5,9 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('Guest drawer opens, navigates and closes on mobile', (
-    tester,
-  ) async {
+  testWidgets('Floating bottom nav navigates on mobile', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -15,15 +13,9 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(theme: airobotTheme(), home: const HomePage()),
     );
-    tester.state<ScaffoldState>(find.byType(Scaffold)).openDrawer();
+    expect(find.byKey(const ValueKey('bottom-nav-0')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('bottom-nav-1')));
     await tester.pumpAndSettle();
-    expect(find.text('Invitado'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('sidebar-1')));
-    await tester.pumpAndSettle();
-    expect(
-      tester.state<ScaffoldState>(find.byType(Scaffold)).isDrawerOpen,
-      isFalse,
-    );
     expect(find.text('Por servo'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

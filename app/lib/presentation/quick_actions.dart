@@ -14,7 +14,9 @@ class QuickActions extends StatelessWidget {
   Widget build(BuildContext context) => MenuAnchor(
     consumeOutsideTap: true,
     style: MenuStyle(
-      backgroundColor: const WidgetStatePropertyAll(Colors.white),
+      backgroundColor: WidgetStatePropertyAll(
+        Theme.of(context).colorScheme.surface,
+      ),
       surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
       elevation: const WidgetStatePropertyAll(8),
       shape: WidgetStatePropertyAll(

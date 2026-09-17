@@ -1,22 +1,33 @@
 import 'package:flutter/material.dart';
+import 'design_tokens.dart';
 
-ThemeData airobotTheme() {
-  const ink = Color(0xff17233b), muted = Color(0xff718096);
+ThemeData airobotTheme({Brightness brightness = Brightness.light}) {
+  final dark = brightness == Brightness.dark;
+  final tokens = dark ? AirobotTokens.dark : AirobotTokens.light;
+  final ink = tokens.ink, muted = tokens.muted;
   const primary = Color(0xff1a73e8);
+  final surface = dark ? const Color(0xff14181f) : Colors.white;
+  final scaffoldBg = dark ? const Color(0xff10141c) : const Color(0xfff0f4f9);
   final scheme = ColorScheme.fromSeed(
     seedColor: primary,
+    brightness: brightness,
     primary: primary,
     onPrimary: Colors.white,
-    primaryContainer: const Color(0xffd3e3fd),
-    onPrimaryContainer: const Color(0xff0842a0),
+    primaryContainer: dark ? const Color(0xff173156) : const Color(0xffd3e3fd),
+    onPrimaryContainer: dark ? const Color(0xffd3e3fd) : const Color(0xff0842a0),
     secondary: const Color(0xff1967d2),
-    secondaryContainer: const Color(0xffd3e3fd),
-    onSecondaryContainer: const Color(0xff0842a0),
+    secondaryContainer: dark
+        ? const Color(0xff173156)
+        : const Color(0xffd3e3fd),
+    onSecondaryContainer: dark
+        ? const Color(0xffd3e3fd)
+        : const Color(0xff0842a0),
     tertiary: const Color(0xff4285f4),
-    surface: Colors.white,
+    surface: surface,
   );
   final base = ThemeData(
     useMaterial3: true,
+    brightness: brightness,
     colorScheme: scheme,
     fontFamily: const String.fromEnvironment(
       'AIROBOT_FONT_FAMILY',
@@ -25,36 +36,37 @@ ThemeData airobotTheme() {
   );
   final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(14));
   return base.copyWith(
-    scaffoldBackgroundColor: const Color(0xfff0f4f9),
+    scaffoldBackgroundColor: scaffoldBg,
     splashFactory: InkSparkle.splashFactory,
+    extensions: [tokens],
     textTheme: base.textTheme
         .apply(bodyColor: ink, displayColor: ink)
         .copyWith(
-          headlineLarge: const TextStyle(
+          headlineLarge: TextStyle(
             fontSize: 30,
             fontWeight: FontWeight.w700,
             letterSpacing: -1,
             color: ink,
           ),
-          headlineMedium: const TextStyle(
+          headlineMedium: TextStyle(
             fontSize: 23,
             fontWeight: FontWeight.w700,
             letterSpacing: -.6,
             color: ink,
           ),
-          headlineSmall: const TextStyle(
+          headlineSmall: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.w600,
             letterSpacing: -.6,
             color: ink,
           ),
-          titleLarge: const TextStyle(
+          titleLarge: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w600,
             color: ink,
           ),
-          bodyMedium: const TextStyle(fontSize: 14, height: 1.4, color: ink),
-          bodySmall: const TextStyle(fontSize: 12, height: 1.4, color: muted),
+          bodyMedium: TextStyle(fontSize: 14, height: 1.4, color: ink),
+          bodySmall: TextStyle(fontSize: 12, height: 1.4, color: muted),
         )
         .apply(
           fontFamily: const String.fromEnvironment(
@@ -62,8 +74,8 @@ ThemeData airobotTheme() {
             defaultValue: '.SF Pro Text',
           ),
         ),
-    appBarTheme: const AppBarTheme(
-      backgroundColor: Color(0xfff0f4f9),
+    appBarTheme: AppBarTheme(
+      backgroundColor: scaffoldBg,
       surfaceTintColor: Colors.transparent,
       centerTitle: false,
       elevation: 0,
@@ -82,7 +94,7 @@ ThemeData airobotTheme() {
       style: OutlinedButton.styleFrom(
         foregroundColor: ink,
         minimumSize: const Size(48, 48),
-        side: const BorderSide(color: Color(0xffdce2ed)),
+        side: BorderSide(color: tokens.cardBorder),
         shape: shape,
         animationDuration: const Duration(milliseconds: 180),
       ),
@@ -97,15 +109,15 @@ ThemeData airobotTheme() {
       style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
     ),
     chipTheme: base.chipTheme.copyWith(
-      backgroundColor: Colors.white,
-      selectedColor: const Color(0xffd3e3fd),
-      side: const BorderSide(color: Color(0xffe2e7f0)),
+      backgroundColor: surface,
+      selectedColor: scheme.primaryContainer,
+      side: BorderSide(color: tokens.cardBorder),
       shape: shape,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: const Color(0xfff6f8fc),
+      fillColor: tokens.surfaceMuted,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
@@ -113,7 +125,7 @@ ThemeData airobotTheme() {
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: Color(0xffe7ebf3)),
+        borderSide: BorderSide(color: tokens.cardBorder),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
@@ -122,7 +134,7 @@ ThemeData airobotTheme() {
     ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
-      backgroundColor: ink,
+      backgroundColor: dark ? const Color(0xff2a3242) : ink,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       contentTextStyle: const TextStyle(color: Colors.white, fontSize: 14),
       insetPadding: const EdgeInsets.all(16),
@@ -131,23 +143,23 @@ ThemeData airobotTheme() {
     ),
     dialogTheme: DialogThemeData(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      backgroundColor: Colors.white,
+      backgroundColor: surface,
       surfaceTintColor: Colors.transparent,
     ),
-    dividerTheme: const DividerThemeData(
-      color: Color(0xffe7ebf3),
+    dividerTheme: DividerThemeData(
+      color: tokens.cardBorder,
       thickness: 1,
       space: 24,
     ),
-    navigationBarTheme: const NavigationBarThemeData(
-      backgroundColor: Colors.white,
+    navigationBarTheme: NavigationBarThemeData(
+      backgroundColor: surface,
       surfaceTintColor: Colors.transparent,
-      indicatorColor: Color(0xffd3e3fd),
+      indicatorColor: scheme.primaryContainer,
       height: 72,
     ),
-    navigationRailTheme: const NavigationRailThemeData(
-      backgroundColor: Colors.white,
-      indicatorColor: Color(0xffd3e3fd),
+    navigationRailTheme: NavigationRailThemeData(
+      backgroundColor: surface,
+      indicatorColor: scheme.primaryContainer,
     ),
   );
 }

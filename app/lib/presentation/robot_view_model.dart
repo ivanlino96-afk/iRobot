@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/services.dart';
 import 'package:crypto/crypto.dart';
 import 'package:airobot_kinematics/airobot_kinematics.dart';
@@ -9,6 +10,7 @@ import '../domain/models.dart';
 import '../data/simulator_repository.dart';
 import '../data/mqtt_robot_repository.dart';
 import '../infrastructure/api_client.dart';
+import '../infrastructure/event_log.dart';
 
 Future<List<double>> solveTcp(
   List<double> profile,
@@ -38,6 +40,16 @@ class RobotViewModel extends ChangeNotifier {
   }
 
   RobotRepository? repository;
+  final eventLog = RobotEventLog();
+  bool get reconnecting =>
+      repository is MqttRobotRepository &&
+      (repository as MqttRobotRepository).reconnecting;
+  int get reconnectAttempt => repository is MqttRobotRepository
+      ? (repository as MqttRobotRepository).reconnectAttempt
+      : 0;
+  String? get lastDisconnectReason => repository is MqttRobotRepository
+      ? (repository as MqttRobotRepository).lastDisconnectReason
+      : null;
   RobotProfile? profile;
   RobotSnapshot snapshot = const RobotSnapshot();
   ApiClient? api;
@@ -50,6 +62,13 @@ class RobotViewModel extends ChangeNotifier {
       robotName = name.trim();
       notifyListeners();
     }
+  }
+
+  ThemeMode themeMode = ThemeMode.system;
+  void setThemeMode(ThemeMode mode) {
+    if (mode == themeMode) return;
+    themeMode = mode;
+    notifyListeners();
   }
 
   bool connecting = false;
@@ -370,7 +389,7 @@ class RobotViewModel extends ChangeNotifier {
       // Connection confirmation must not depend on calibration or saved programs.
       profile = null;
       await api!.delete('/robots/$id/session');
-      final r = MqttRobotRepository(api!, id, null);
+      final r = MqttRobotRepository(api!, id, null, log: eventLog);
       await attach(r);
       await r.connect().timeout(const Duration(seconds: 15));
       try {
@@ -664,6 +683,7 @@ class RobotViewModel extends ChangeNotifier {
     commandGeneration++;
     subscription?.cancel();
     repository?.dispose();
+    eventLog.dispose();
     super.dispose();
   }
 }

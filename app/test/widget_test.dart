@@ -48,9 +48,7 @@ void main() {
       expect(find.text('UNKNOWN'), findsNothing);
       expect(find.text('Crear secuencia'), findsOneWidget);
       expect(find.byType(NavigationBar), findsNothing);
-      await tester.tap(find.byType(DrawerButton));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('sidebar-1')));
+      await tester.tap(find.byKey(const ValueKey('bottom-nav-1')));
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Coordenadas'));
       await tester.tap(find.text('Coordenadas'));

@@ -2,11 +2,15 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../domain/models.dart';
+import '../data/mqtt_robot_repository.dart';
 import 'robot_view_model.dart';
 import 'sidebar_menu.dart';
 import 'jog_button.dart';
 import 'quick_actions.dart';
 import 'motion_popup.dart';
+import 'design_tokens.dart';
+import 'safety_notice.dart';
+import 'bottom_nav_bar.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, this.model});
@@ -80,9 +84,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     messenger.showSnackBar(
       SnackBar(
         duration: Duration(seconds: error ? 5 : 3),
-        backgroundColor: error
-            ? const Color(0xffb4233c)
-            : const Color(0xff17233b),
+        backgroundColor: error ? context.tokens.danger : context.tokens.ink,
         content: Row(
           children: [
             Icon(
@@ -170,10 +172,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ],
     ),
     child: Material(
-      color: Colors.white,
+      color: Theme.of(context).colorScheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
-        side: const BorderSide(color: Color(0xffe7ebf3)),
+        side: BorderSide(color: context.tokens.cardBorder),
       ),
       clipBehavior: Clip.antiAlias,
       child: Padding(padding: const EdgeInsets.all(18), child: child),
@@ -186,8 +188,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }) => Container(
     decoration: BoxDecoration(
       borderRadius: BorderRadius.circular(20),
-      color: Colors.white,
-      border: Border.all(color: const Color(0xffe7ebf3), width: 1.5),
+      color: Theme.of(context).colorScheme.surface,
+      border: Border.all(color: context.tokens.cardBorder, width: 1.5),
       boxShadow: [
         BoxShadow(
           color: const Color(0xff0f172a).withValues(alpha: 0.04),
@@ -224,21 +226,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           FittedBox(
             child: Text(
               valueText,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 26,
                 fontWeight: FontWeight.bold,
                 letterSpacing: -0.5,
-                color: Color(0xff9ca3af),
+                color: context.tokens.muted,
               ),
             ),
           ),
           const SizedBox(height: 2),
-          const Text(
+          Text(
             'mm',
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w500,
-              color: Color(0xff94a3b8),
+              color: context.tokens.muted,
             ),
           ),
         ],
@@ -269,46 +271,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               Scaffold(
                 floatingActionButtonLocation:
                     FloatingActionButtonLocation.endFloat,
-                floatingActionButton: QuickActions(
-                  key: ValueKey('quick-actions-$page'),
-                  onGoHome: vm.canMove
-                      ? () => run(
-                          () => vm.send('goHome', {'speedPercent': speed}),
-                        )
-                      : null,
-                  onCreateSequence: () => selectPage(3),
+                floatingActionButton: Padding(
+                  padding: EdgeInsets.only(bottom: wide ? 0 : 76),
+                  child: QuickActions(
+                    key: ValueKey('quick-actions-$page'),
+                    onGoHome: vm.canMove
+                        ? () => run(
+                            () => vm.send('goHome', {'speedPercent': speed}),
+                          )
+                        : null,
+                    onCreateSequence: () => selectPage(3),
+                  ),
                 ),
-                onDrawerChanged: (open) {
-                  if (open && vm.holding) stopManual();
-                },
-                drawer: wide
-                    ? null
-                    : Drawer(
-                        width: 280,
-                        backgroundColor: Colors.transparent,
-                        elevation: 0,
-                        child: Builder(
-                          builder: (drawerContext) => SidebarMenu(
-                            selectedIndex: page,
-                            onClose: () => Navigator.pop(drawerContext),
-                            onSelected: (index) {
-                              Navigator.pop(drawerContext);
-                              selectPage(index);
-                            },
-                          ),
-                        ),
-                      ),
                 appBar: AppBar(
-                  leading: wide
-                      ? null
-                      : Builder(
-                          builder: (context) => DrawerButton(
-                            onPressed: () {
-                              if (vm.holding) stopManual();
-                              Scaffold.of(context).openDrawer();
-                            },
-                          ),
-                        ),
                   title: Text(
                     page == 1 ? 'Manual' : 'AiRobot',
                     style: TextStyle(
@@ -318,28 +293,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     ),
                   ),
                   actions: [
-                    if (page == 1)
-                      OutlinedButton.icon(
-                        onPressed: vm.snapshot.connected ? stopManual : null,
-                        icon: const Icon(Icons.stop_rounded, size: 18),
-                        label: const Text('Parar'),
+                    TextButton.icon(
+                      onPressed: () => selectPage(4),
+                      icon: Icon(
+                        vm.snapshot.connected
+                            ? Icons.sensors
+                            : Icons.sensors_off,
+                        color: vm.snapshot.connected
+                            ? context.tokens.success
+                            : vm.connectionError != null
+                            ? context.tokens.danger
+                            : null,
+                        size: 18,
                       ),
-                    if (page != 1)
-                      TextButton.icon(
-                        onPressed: () => selectPage(4),
-                        icon: Icon(
-                          vm.snapshot.connected
-                              ? Icons.sensors
-                              : Icons.sensors_off,
-                          color: vm.snapshot.connected
-                              ? Colors.green
-                              : vm.connectionError != null
-                              ? Colors.red
-                              : null,
-                          size: 18,
-                        ),
-                        label: Text(vm.connectionLabel),
-                      ),
+                      label: Text(vm.connectionLabel),
+                    ),
                     const SizedBox(width: 8),
                   ],
                 ),
@@ -361,7 +329,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 wide ? 28 : 16,
                                 12,
                                 wide ? 28 : 16,
-                                96,
+                                wide ? 96 : 140,
                               ),
                               child: Center(
                                 child: ConstrainedBox(
@@ -404,7 +372,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                             1 => tcp(),
                                             2 => programs(),
                                             3 => teach(),
-                                            _ => settings(),
+                                            4 => settings(),
+                                            _ => diagnostics(),
                                           },
                                         ),
                                       ),
@@ -420,6 +389,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   ],
                 ),
               ),
+              if (!wide)
+                Positioned(
+                  left: 20,
+                  right: 20,
+                  bottom: 16,
+                  child: SafeArea(
+                    top: false,
+                    child: BottomNavBar(
+                      selectedIndex: page,
+                      onSelected: (index) {
+                        if (vm.holding) stopManual();
+                        selectPage(index);
+                      },
+                    ),
+                  ),
+                ),
               if (vm.motionPopupVisible)
                 MotionPopup(
                   status: vm.motionStatus,
@@ -454,20 +439,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Hello, Ivan',
+                    'Hola, Ivan',
                     style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                       fontSize: 32,
                       fontWeight: FontWeight.bold,
                       letterSpacing: -0.8,
-                      color: const Color(0xff17233b),
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Welcome to AiRobot',
+                    'Bienvenido a AiRobot',
                     style: TextStyle(
                       fontSize: 16,
-                      color: const Color(0xff718096),
+                      color: context.tokens.muted,
                       fontWeight: FontWeight.w400,
                     ),
                   ),
@@ -475,13 +459,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ),
             ),
             const SizedBox(width: 12),
-            const CircleAvatar(
+            CircleAvatar(
               radius: 18,
-              backgroundColor: Color(0xffd3e3fd),
+              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
               child: Icon(
                 Icons.person_outline_rounded,
                 size: 20,
-                color: Color(0xff1a73e8),
+                color: Theme.of(context).colorScheme.primary,
               ),
             ),
           ],
@@ -561,10 +545,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         vm.snapshot.tcp != null
                     ? vm.snapshot.tcp![axis].toStringAsFixed(1)
                     : '—',
-                accentColor: const [
-                  Color(0xff38bdf8),
-                  Color(0xff34d399),
-                  Color(0xffa78bfa),
+                accentColor: [
+                  context.tokens.axisX,
+                  context.tokens.axisY,
+                  context.tokens.axisZ,
                 ][axis],
               ),
             ),
@@ -601,9 +585,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ],
       ),
       const SizedBox(height: 12),
-      const Text(
-        'Desarmar detiene el movimiento y mantiene la consigna. No corta la alimentación de los servos.',
-      ),
+      const Text('Desarmar detiene el movimiento y mantiene la consigna.'),
+      const SizedBox(height: 4),
+      const SafetyNotice(),
       const SizedBox(height: 12),
 
       if (vm.repository == null)
@@ -633,21 +617,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
             decoration: BoxDecoration(
-              color: const Color(0xfff8fafc),
+              color: context.tokens.surfaceMuted,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xffe2e8f0)),
+              border: Border.all(color: context.tokens.cardBorder),
             ),
             child: DropdownButtonHideUnderline(
               child: DropdownButton<int>(
                 value: joint,
                 isExpanded: true,
-                icon: const Icon(
+                icon: Icon(
                   Icons.keyboard_arrow_down_rounded,
-                  color: Color(0xff64748b),
+                  color: context.tokens.muted,
                   size: 22,
                 ),
                 borderRadius: BorderRadius.circular(16),
-                dropdownColor: Colors.white,
+                dropdownColor: Theme.of(context).colorScheme.surface,
                 elevation: 4,
                 items: [
                   for (int j = 0; j < 7; j++)
@@ -662,8 +646,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             ),
                             decoration: BoxDecoration(
                               color: joint == j
-                                  ? const Color(0xffd3e3fd)
-                                  : const Color(0xffe2e8f0),
+                                  ? Theme.of(context).colorScheme.primaryContainer
+                                  : context.tokens.surfaceMuted,
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
@@ -672,8 +656,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
                                 color: joint == j
-                                    ? const Color(0xff0842a0)
-                                    : const Color(0xff475569),
+                                    ? Theme.of(context).colorScheme.onPrimaryContainer
+                                    : context.tokens.muted,
                               ),
                             ),
                           ),
@@ -681,10 +665,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           Expanded(
                             child: Text(
                               names[j],
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w500,
-                                color: Color(0xff1e293b),
+                                color: context.tokens.ink,
                               ),
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -714,6 +698,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           Text(
             'Objetivo · límites ${min.toStringAsFixed(0)}° a ${max.toStringAsFixed(0)}°',
             style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 8),
+          jointRangeGauge(
+            min: min,
+            max: max,
+            target: target,
+            actual: vm.snapshot.reference
+                ? vm.snapshot.joints[joint]
+                : null,
           ),
           Slider(
             value: target,
@@ -764,6 +757,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 : 'Referencia pendiente',
             style: Theme.of(context).textTheme.bodySmall,
           ),
+          if (vm.profile != null)
+            Text(
+              'Vel. máx ${vm.profile!.velocity[joint].toStringAsFixed(0)}°/s · '
+              'Acel. máx ${vm.profile!.acceleration[joint].toStringAsFixed(0)}°/s²',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: context.tokens.muted),
+            ),
           if (joint == 1)
             const Text(
               'J2 coordina dos servos calibrados.',
@@ -774,36 +775,121 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
-  Widget manualRecovery() => Wrap(
-    spacing: 8,
-    runSpacing: 8,
-    children: [
-      if (vm.canReference && !vm.snapshot.reference)
-        FilledButton.icon(
-          onPressed: reference,
-          icon: const Icon(Icons.my_location),
-          label: const Text('Confirmar referencia'),
+  /// Visualizes where [target] (and, if known, the confirmed [actual]
+  /// position) sits within the joint's calibrated [min]/[max] range.
+  Widget jointRangeGauge({
+    required double min,
+    required double max,
+    required double target,
+    double? actual,
+  }) {
+    final span = (max - min).abs() < 1e-6 ? 1.0 : max - min;
+    double fractionOf(double value) => ((value - min) / span).clamp(0.0, 1.0);
+    return SizedBox(
+      height: 22,
+      child: LayoutBuilder(
+        builder: (context, constraints) => Stack(
+          alignment: Alignment.centerLeft,
+          children: [
+            Container(
+              height: 6,
+              decoration: BoxDecoration(
+                color: context.tokens.surfaceMuted,
+                borderRadius: BorderRadius.circular(3),
+                border: Border.all(color: context.tokens.cardBorder),
+              ),
+            ),
+            Positioned(
+              left:
+                  fractionOf(target) * (constraints.maxWidth - 4).clamp(0, double.infinity),
+              child: Container(
+                width: 4,
+                height: 16,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            if (actual != null)
+              Positioned(
+                left:
+                    fractionOf(actual) * (constraints.maxWidth - 10).clamp(0, double.infinity),
+                child: Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: context.tokens.success,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 1.5),
+                  ),
+                ),
+              ),
+          ],
         ),
-      if (vm.canArm)
-        FilledButton.icon(
-          onPressed: () => run(vm.arm),
-          icon: const Icon(Icons.lock_open),
-          label: Text(
-            vm.snapshot.state == 'HOLD' ? 'Reanudar control' : 'Armar',
+      ),
+    );
+  }
+
+  Widget manualRecovery() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      if (['FAULT', 'ESTOP_LATCHED'].contains(vm.snapshot.state) &&
+          vm.snapshot.reason.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.warning_amber_rounded,
+                size: 16,
+                color: context.tokens.danger,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  vm.snapshot.reason,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: context.tokens.danger),
+                ),
+              ),
+            ],
           ),
         ),
-      if (['FAULT', 'ESTOP_LATCHED'].contains(vm.snapshot.state))
-        OutlinedButton.icon(
-          onPressed: vm.busy ? null : () => run(vm.reset),
-          icon: const Icon(Icons.restart_alt),
-          label: const Text('Rearmar bloqueo'),
-        ),
-      OutlinedButton.icon(
-        onPressed: vm.canMove
-            ? () => run(() => vm.send('goHome', {'speedPercent': speed}))
-            : null,
-        icon: const Icon(Icons.home_outlined),
-        label: const Text('Ir a home'),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          if (vm.canReference && !vm.snapshot.reference)
+            FilledButton.icon(
+              onPressed: reference,
+              icon: const Icon(Icons.my_location),
+              label: const Text('Confirmar referencia'),
+            ),
+          if (vm.canArm)
+            FilledButton.icon(
+              onPressed: () => run(vm.arm),
+              icon: const Icon(Icons.lock_open),
+              label: Text(
+                vm.snapshot.state == 'HOLD' ? 'Reanudar control' : 'Armar',
+              ),
+            ),
+          if (['FAULT', 'ESTOP_LATCHED'].contains(vm.snapshot.state))
+            OutlinedButton.icon(
+              onPressed: vm.busy ? null : () => run(vm.reset),
+              icon: const Icon(Icons.restart_alt),
+              label: const Text('Rearmar bloqueo'),
+            ),
+          OutlinedButton.icon(
+            onPressed: vm.canMove
+                ? () => run(() => vm.send('goHome', {'speedPercent': speed}))
+                : null,
+            icon: const Icon(Icons.home_outlined),
+            label: const Text('Ir a home'),
+          ),
+        ],
       ),
     ],
   );
@@ -1012,9 +1098,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     width: width,
     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
     decoration: BoxDecoration(
-      color: Colors.white,
+      color: Theme.of(context).colorScheme.surface,
       borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: const Color(0xffe6e6e6)),
+      border: Border.all(color: context.tokens.cardBorder),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1033,8 +1119,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.bold,
                   color: position != null
-                      ? const Color(0xff17233b)
-                      : const Color(0xff9ca3af),
+                      ? context.tokens.ink
+                      : context.tokens.muted,
                 ),
           ),
         ),
@@ -1062,9 +1148,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   jogButton('X−', Icons.arrow_back, 0, -linearStep),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 14),
-                    child: Icon(Icons.control_camera, color: Color(0xff9ca3af)),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    child: Icon(
+                      Icons.control_camera,
+                      color: context.tokens.muted,
+                    ),
                   ),
                   jogButton('X+', Icons.arrow_forward, 0, linearStep),
                 ],
@@ -1132,9 +1221,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }) =>
       Container(
         decoration: BoxDecoration(
-          color: const Color(0xfff8fafc),
+          color: context.tokens.surfaceMuted,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xffe2e8f0)),
+          border: Border.all(color: context.tokens.cardBorder),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         child: Row(
@@ -1163,10 +1252,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   decimal: true,
                 ),
                 autovalidateMode: AutovalidateMode.onUserInteraction,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xff1e293b),
+                  color: context.tokens.ink,
                 ),
                 decoration: InputDecoration(
                   isDense: true,
@@ -1176,9 +1265,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   focusedBorder: InputBorder.none,
                   errorStyle: const TextStyle(height: 0.8, fontSize: 10),
                   suffixText: unit,
-                  suffixStyle: const TextStyle(
+                  suffixStyle: TextStyle(
                     fontSize: 11,
-                    color: Color(0xff94a3b8),
+                    color: context.tokens.muted,
                   ),
                 ),
                 validator: (v) =>
@@ -1209,15 +1298,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 8, vertical: 2),
                           decoration: BoxDecoration(
-                            color: const Color(0xffd3e3fd),
+                            color: Theme.of(context).colorScheme.primaryContainer,
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: const Text(
+                          child: Text(
                             'XYZ',
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xff0842a0),
+                              color: Theme.of(context).colorScheme.onPrimaryContainer,
                             ),
                           ),
                         ),
@@ -1230,10 +1319,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         ? useCurrentCoordinates
                         : null,
                     icon: const Icon(Icons.my_location_rounded, size: 20),
-                    style: IconButton.styleFrom(
-                      backgroundColor: const Color(0xfff1f5f9),
-                      foregroundColor: const Color(0xff1e293b),
-                    ),
                   ),
                 ],
               ),
@@ -1246,7 +1331,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       unit: 'mm',
                       controller: px,
                       isGripper: false,
-                      accentColor: const Color(0xff38bdf8),
+                      accentColor: context.tokens.axisX,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -1256,7 +1341,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       unit: 'mm',
                       controller: py,
                       isGripper: false,
-                      accentColor: const Color(0xff34d399),
+                      accentColor: context.tokens.axisY,
                     ),
                   ),
                 ],
@@ -1270,7 +1355,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       unit: 'mm',
                       controller: pz,
                       isGripper: false,
-                      accentColor: const Color(0xffa78bfa),
+                      accentColor: context.tokens.axisZ,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -1280,7 +1365,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       unit: '°',
                       controller: grip,
                       isGripper: true,
-                      accentColor: const Color(0xfff59e0b),
+                      accentColor: context.tokens.axisGripper,
                     ),
                   ),
                 ],
@@ -1288,9 +1373,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               const SizedBox(height: 14),
               Container(
                 decoration: BoxDecoration(
-                  color: const Color(0xfff8fafc),
+                  color: context.tokens.surfaceMuted,
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xffe2e8f0)),
+                  border: Border.all(color: context.tokens.cardBorder),
                 ),
                 child: Material(
                   color: Colors.transparent,
@@ -1301,21 +1386,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
                     child: SwitchListTile.adaptive(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text(
+                      title: Text(
                         'Conservar orientación',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xff1e293b),
+                          color: context.tokens.ink,
                         ),
                       ),
                       subtitle: Text(
                         keepOrientation
                             ? 'Mantiene la orientación actual de la garra'
                             : 'Usa la orientación de home',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
-                          color: Color(0xff64748b),
+                          color: context.tokens.muted,
                         ),
                       ),
                       value: keepOrientation,
@@ -1342,14 +1427,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           }
                         }
                       : null,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xff0f172a),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
                   icon: const Icon(Icons.send_rounded, size: 18),
                   label: const Text('Validar y mover'),
                 ),
@@ -1361,9 +1438,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget indicatorCard(String label, String value, IconData icon) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
     decoration: BoxDecoration(
-      color: const Color(0xfff8fafc),
+      color: context.tokens.surfaceMuted,
       borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: const Color(0xffe2e8f0)),
+      border: Border.all(color: context.tokens.cardBorder),
       boxShadow: const [
         BoxShadow(
           color: Color(0x08000000),
@@ -1379,14 +1456,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 16, color: const Color(0xff0284c7)),
+            Icon(icon, size: 16, color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: 6),
             Text(
               value,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
-                color: Color(0xff334155),
+                color: context.tokens.ink,
                 letterSpacing: -.5,
               ),
             ),
@@ -1395,10 +1472,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         const SizedBox(height: 4),
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.bold,
-            color: Color(0xff0369a1),
+            color: Theme.of(context).colorScheme.primary,
             letterSpacing: 0.2,
           ),
         ),
@@ -1494,12 +1571,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               vm.steps.insert(i - 1, s);
                             })
                           : null,
-                      icon: const Icon(Icons.arrow_upward),
+                      icon: const Icon(Icons.arrow_upward_rounded),
+                    ),
+                    IconButton(
+                      tooltip: 'Bajar',
+                      onPressed: i < vm.steps.length - 1
+                          ? () => setState(() {
+                              final s = vm.steps.removeAt(i);
+                              vm.steps.insert(i + 1, s);
+                            })
+                          : null,
+                      icon: const Icon(Icons.arrow_downward_rounded),
                     ),
                     IconButton(
                       tooltip: 'Eliminar paso',
-                      onPressed: () => setState(() => vm.steps.removeAt(i)),
-                      icon: const Icon(Icons.close),
+                      onPressed: () async {
+                        if (await confirm(
+                          '¿Eliminar este paso?',
+                          'Se quitará de la secuencia. Esta acción no se puede deshacer.',
+                          confirmLabel: 'Eliminar',
+                          destructive: true,
+                        )) {
+                          setState(() => vm.steps.removeAt(i));
+                        }
+                      },
+                      icon: const Icon(Icons.close_rounded),
                     ),
                   ],
                 ),
@@ -1565,8 +1661,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(p['name'], style: Theme.of(context).textTheme.titleLarge),
-                Text(
-                  '${(p['body']['steps'] as List).length} puntos · ${p['needsRevalidation'] == true ? 'Requiere revalidación' : 'Perfil compatible'}',
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      p['needsRevalidation'] == true
+                          ? Icons.warning_amber_rounded
+                          : Icons.check_circle_outline_rounded,
+                      size: 14,
+                      color: p['needsRevalidation'] == true
+                          ? context.tokens.warning
+                          : context.tokens.success,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${(p['body']['steps'] as List).length} puntos · ${p['needsRevalidation'] == true ? 'Requiere revalidación' : 'Perfil compatible'}',
+                      style: TextStyle(
+                        color: p['needsRevalidation'] == true
+                            ? context.tokens.warning
+                            : context.tokens.muted,
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 16),
                 Wrap(
@@ -1575,7 +1691,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   children: [
                     FilledButton.icon(
                       onPressed: vm.canMove && p['needsRevalidation'] != true
-                          ? () => run(() => vm.run(p))
+                          ? () async {
+                              if (await confirm(
+                                'Ejecutar "${p['name']}"',
+                                'El robot físico se moverá siguiendo esta secuencia guardada.',
+                                confirmLabel: 'Ejecutar',
+                              )) {
+                                run(() => vm.run(p));
+                              }
+                            }
                           : null,
                       icon: const Icon(Icons.play_arrow),
                       label: const Text('Ejecutar'),
@@ -1597,11 +1721,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ),
                     IconButton(
                       tooltip: 'Eliminar programa',
-                      onPressed: () => run(() async {
-                        await vm.repository!.deleteProgram(p['id']);
-                        await vm.loadPrograms();
-                      }),
-                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () async {
+                        if (await confirm(
+                          '¿Eliminar "${p['name']}"?',
+                          'Esta acción no se puede deshacer.',
+                          confirmLabel: 'Eliminar',
+                          destructive: true,
+                        )) {
+                          run(() async {
+                            await vm.repository!.deleteProgram(p['id']);
+                            await vm.loadPrograms();
+                          });
+                        }
+                      },
+                      icon: const Icon(Icons.delete_outline_rounded),
                     ),
                   ],
                 ),
@@ -1633,12 +1766,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             value: vm.simulationMode,
             onChanged: vm.busy || vm.connecting
                 ? null
-                : (enabled) => run(
-                    () => vm.setSimulationMode(enabled),
-                    success: enabled
-                        ? 'Simulador conectado'
-                        : 'Simulador desconectado',
-                  ),
+                : (enabled) async {
+                    if (!enabled &&
+                        (vm.steps.isNotEmpty || vm.saved.isNotEmpty) &&
+                        !await confirm(
+                          'Salir de la simulación',
+                          'Los programas y pasos del simulador no se guardan de forma permanente; se perderán al desconectar.',
+                          confirmLabel: 'Salir de todos modos',
+                          destructive: true,
+                        )) {
+                      return;
+                    }
+                    run(
+                      () => vm.setSimulationMode(enabled),
+                      success: enabled
+                          ? 'Simulador conectado'
+                          : 'Simulador desconectado',
+                    );
+                  },
           ),
         ),
       ),
@@ -1698,6 +1843,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   ? 'Geometría validada'
                   : 'Geometría pendiente',
             ),
+            if (vm.profile != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Offset de herramienta (tool): '
+                '${vm.profile!.tool.map((v) => v.toStringAsFixed(0)).join(' / ')} mm',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Velocidad máx. por articulación: '
+                '${vm.profile!.velocity.map((v) => v.toStringAsFixed(0)).join(' / ')}°/s',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Aceleración máx. por articulación: '
+                '${vm.profile!.acceleration.map((v) => v.toStringAsFixed(0)).join(' / ')}°/s²',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
             const SizedBox(height: 16),
             OutlinedButton.icon(
               onPressed: vm.repository != null ? profileEditor : null,
@@ -1718,15 +1883,119 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               'Calibración individual: procedimiento por USB, con el brazo soportado. Consulta la guía de instalación y pruebas.',
             ),
             const SizedBox(height: 12),
-            const Text(
-              'Bloquear movimiento es una parada por software. No corta la alimentación de los servos.',
-              style: TextStyle(color: Color(0xff5d5d5d)),
-            ),
+            const SafetyNotice(),
           ],
         ),
       ),
     ],
   );
+
+  Widget diagnostics() {
+    final repo = vm.repository;
+    if (repo is! MqttRobotRepository) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          title('Diagnóstico', 'Salud de la conexión con el robot.'),
+          card(
+            const Text(
+              'Diagnóstico no aplica en modo simulador: no hay sesión MQTT ni telemetría de red que inspeccionar.',
+            ),
+          ),
+        ],
+      );
+    }
+    final telemetryAge = DateTime.now().difference(repo.lastState);
+    final ttl = repo.sessionTimeToLive;
+    return AnimatedBuilder(
+      animation: vm.eventLog,
+      builder: (context, _) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          title('Diagnóstico', 'Salud de la conexión con el robot.'),
+          card(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Estado de la sesión',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  repo.confirmed
+                      ? 'Última telemetría: hace ${telemetryAge.inSeconds}s'
+                      : 'Sin sesión activa',
+                ),
+                if (ttl != null)
+                  Text(
+                    ttl.isNegative
+                        ? 'Sesión vencida, renovando…'
+                        : 'Sesión expira en ${ttl.inSeconds}s',
+                  ),
+                Text('Comandos pendientes de confirmación: ${repo.pending.length}'),
+                if (vm.reconnecting)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: context.tokens.warning,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Reconectando… (intento ${vm.reconnectAttempt})',
+                          style: TextStyle(color: context.tokens.warning),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (vm.lastDisconnectReason != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Última causa de desconexión: ${vm.lastDisconnectReason}',
+                      style: TextStyle(color: context.tokens.muted),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Registro de eventos',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 8),
+          if (vm.eventLog.entries.isEmpty)
+            card(const Text('Sin eventos todavía.'))
+          else
+            card(
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final e in vm.eventLog.entries.reversed.take(50))
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Text(
+                        '${e.at.toIso8601String().substring(11, 19)} · ${e.category} · ${e.message}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Future<void> reference() async {
     final controllers = List.generate(
       7,
@@ -1827,27 +2096,46 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     editor.dispose();
   }
 
-  Future<void> confirmRevalidation(Map<String, dynamic> p) async {
+  Future<bool> confirm(
+    String title,
+    String body, {
+    String confirmLabel = 'Confirmar',
+    bool destructive = false,
+  }) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Revalidar con el perfil actual'),
-        content: const Text(
-          'Los mismos puntos pueden producir movimientos distintos tras cambiar home o geometría. Se validarán de nuevo y se guardará una revisión; no se ejecutará.',
-        ),
+        title: Text(title),
+        content: Text(body),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Cancelar'),
           ),
           FilledButton(
+            style: destructive
+                ? FilledButton.styleFrom(
+                    backgroundColor: context.tokens.danger,
+                    foregroundColor: Colors.white,
+                  )
+                : null,
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Confirmar revalidación'),
+            child: Text(confirmLabel),
           ),
         ],
       ),
     );
-    if (ok == true) run(() => vm.revalidate(p));
+    return ok == true;
+  }
+
+  Future<void> confirmRevalidation(Map<String, dynamic> p) async {
+    if (await confirm(
+      'Revalidar con el perfil actual',
+      'Los mismos puntos pueden producir movimientos distintos tras cambiar home o geometría. Se validarán de nuevo y se guardará una revisión; no se ejecutará.',
+      confirmLabel: 'Confirmar revalidación',
+    )) {
+      run(() => vm.revalidate(p));
+    }
   }
 
   Future<void> editStep(int i) async {

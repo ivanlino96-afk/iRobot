@@ -89,9 +89,6 @@ void main() {
       'Enseñar',
       'Configurar',
     ]) {
-      await tester.tap(find.byType(DrawerButton));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
       final index = [
         'Home',
         'Manual',
@@ -99,7 +96,7 @@ void main() {
         'Enseñar',
         'Configurar',
       ].indexOf(label);
-      await tester.tap(find.byKey(ValueKey('sidebar-$index')));
+      await tester.tap(find.byKey(ValueKey('bottom-nav-$index')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
       expect(tester.takeException(), isNull, reason: label);

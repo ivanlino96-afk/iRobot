@@ -19,6 +19,9 @@ class RobotProfile {
   List<double> get home => numbers(json['home'], 7);
   List<double> get minimum => numbers(json['minimum'], 7);
   List<double> get maximum => numbers(json['maximum'], 7);
+  List<double> get velocity => numbers(json['velocity'], 7);
+  List<double> get acceleration => numbers(json['acceleration'], 7);
+  List<double> get tool => numbers(json['tool'], 3);
   bool get calibrated => json['calibrated'] == true;
   bool get geometry => json['geometryValidated'] == true;
   static List<double> numbers(dynamic value, int length) {

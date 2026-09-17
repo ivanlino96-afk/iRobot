@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'design_tokens.dart';
+import 'safety_notice.dart';
 
 class MotionPopup extends StatelessWidget {
   const MotionPopup({
@@ -30,7 +32,7 @@ class MotionPopup extends StatelessWidget {
                   : Icons.precision_manufacturing_outlined,
               size: 36,
               color: unconfirmed
-                  ? const Color(0xffb4233c)
+                  ? context.tokens.danger
                   : Theme.of(context).colorScheme.primary,
             ),
             title: Text(
@@ -54,7 +56,7 @@ class MotionPopup extends StatelessWidget {
                   width: double.infinity,
                   child: FilledButton.icon(
                     style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xffd93025),
+                      backgroundColor: context.tokens.danger,
                       foregroundColor: Colors.white,
                       minimumSize: const Size(0, 56),
                     ),
@@ -70,11 +72,7 @@ class MotionPopup extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 10),
-                Text(
-                  'Parada por software. No corta la alimentación.',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
+                const SafetyNotice(textAlign: TextAlign.center),
                 if (unconfirmed)
                   TextButton(
                     onPressed: onDismiss,

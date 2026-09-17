@@ -1,16 +1,26 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'package:dio/dio.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
 import '../domain/models.dart';
 import '../infrastructure/api_client.dart';
+import '../infrastructure/event_log.dart';
+
+/// Exponential backoff starting at 500ms, doubling per attempt, capped at 30s.
+Duration backoffDelay(int attempt) {
+  final ms = 500 * pow(2, min(attempt, 6)).toInt();
+  return Duration(milliseconds: min(ms, 30000));
+}
 
 class MqttRobotRepository implements RobotRepository {
-  MqttRobotRepository(this.api, this.robotId, this.profile);
+  MqttRobotRepository(this.api, this.robotId, this.profile, {RobotEventLog? log})
+    : log = log ?? RobotEventLog();
   final ApiClient api;
   final String robotId;
   RobotProfile? profile;
+  final RobotEventLog log;
   final _states = StreamController<RobotSnapshot>.broadcast();
   @override
   Stream<RobotSnapshot> get states => _states.stream;
@@ -19,18 +29,32 @@ class MqttRobotRepository implements RobotRepository {
   Map<String, dynamic>? session;
   int sequence = 0;
   Timer? timer;
+  Timer? _reconnectTimer;
+  int reconnectAttempt = 0;
+  bool reconnecting = false;
+  String? lastDisconnectReason;
   DateTime lastState = DateTime.fromMillisecondsSinceEpoch(0);
   bool renewing = false, closed = false;
   bool confirmed = false;
   final pending = <String, Completer<void>>{};
   StreamSubscription? subscription;
   String get base => 'airobot/v1/robots/$robotId/';
+  Duration? get sessionTimeToLive {
+    final expires = session?['expiresAtEpochMs'] as int?;
+    if (expires == null) return null;
+    return Duration(
+      milliseconds: expires - DateTime.now().millisecondsSinceEpoch,
+    );
+  }
+
   String id() => List.generate(
     16,
     (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
   ).join();
   // Initial broker access uses the bootId read from the API's authenticated status endpoint.
-  Future<void> connect({String scope = 'control'}) async {
+  Future<void> connect({String scope = 'control'}) => _openSession(scope);
+
+  Future<void> _openSession(String scope) async {
     final status = await api.get('/robots/$robotId/state');
     if (closed) throw StateError('Conexión cancelada');
     snapshot = RobotSnapshot.fromJson(Map<String, dynamic>.from(status));
@@ -50,7 +74,7 @@ class MqttRobotRepository implements RobotRepository {
     c.secure = true;
     c.keepAlivePeriod = 10;
     c.autoReconnect = false;
-    c.onDisconnected = _disconnected;
+    c.onDisconnected = () => _disconnected('mqtt-disconnected');
     client = c;
     await c.connect(mqtt['username'], mqtt['password']);
     if (closed) {
@@ -71,7 +95,7 @@ class MqttRobotRepository implements RobotRepository {
           if (event.topic == '${base}state') {
             final next = RobotSnapshot.fromJson(m);
             if (next.bootId != snapshot.bootId) {
-              _disconnected();
+              _disconnected('boot-id-mismatch');
               continue;
             }
             snapshot = next;
@@ -104,6 +128,10 @@ class MqttRobotRepository implements RobotRepository {
     if (closed) throw StateError('Conexión cancelada');
     confirmed = true;
     lastState = DateTime.now();
+    reconnectAttempt = 0;
+    reconnecting = false;
+    lastDisconnectReason = null;
+    log.add('connection', 'Sesión establecida');
     _states.add(snapshot);
 
     timer = Timer.periodic(
@@ -112,16 +140,47 @@ class MqttRobotRepository implements RobotRepository {
     );
   }
 
-  void _disconnected() {
+  void _disconnected(String cause) {
     timer?.cancel();
     confirmed = false;
     snapshot = snapshot.disconnected();
     session = null;
+    lastDisconnectReason = cause;
     for (final p in pending.values) {
       if (!p.isCompleted) p.completeError(StateError('Conexión perdida'));
     }
     pending.clear();
-    if (!closed) _states.add(snapshot.disconnected());
+    if (closed) return;
+    _states.add(snapshot.disconnected());
+    log.add('connection', 'Desconectado', detail: {'cause': cause});
+    if (cause == 'auth-failed') {
+      log.add('reconnect', 'No se reintenta: se requieren credenciales nuevas');
+      return;
+    }
+    reconnecting = true;
+    final delay = backoffDelay(reconnectAttempt);
+    log.add(
+      'reconnect',
+      'Reintentando en ${delay.inSeconds}s (intento ${reconnectAttempt + 1})',
+      detail: {'attempt': reconnectAttempt + 1, 'delayMs': delay.inMilliseconds},
+    );
+    _reconnectTimer = Timer(delay, _attemptReconnect);
+    reconnectAttempt++;
+  }
+
+  Future<void> _attemptReconnect() async {
+    if (closed) return;
+    try {
+      await _openSession('control');
+      log.add('reconnect', 'Reconexión exitosa');
+    } catch (e) {
+      if (closed) return;
+      log.add('reconnect', 'Reintento fallido: $e');
+      reconnecting = true;
+      final delay = backoffDelay(reconnectAttempt);
+      _reconnectTimer = Timer(delay, _attemptReconnect);
+      reconnectAttempt++;
+    }
   }
 
   Future<void> _heartbeat() async {
@@ -131,7 +190,7 @@ class MqttRobotRepository implements RobotRepository {
       if (DateTime.now().difference(lastState) > const Duration(seconds: 3) &&
           lastState.millisecondsSinceEpoch > 0) {
         _states.add(snapshot.disconnected());
-        throw StateError('Telemetría vencida');
+        throw StateError('stale-telemetry');
       }
       if ((session!['expiresAtEpochMs'] as int) -
               DateTime.now().millisecondsSinceEpoch <
@@ -148,8 +207,13 @@ class MqttRobotRepository implements RobotRepository {
         );
       }
       await command('heartbeat', {});
-    } catch (_) {
-      _disconnected();
+    } catch (e) {
+      final cause = e is DioException && [401, 403].contains(e.response?.statusCode)
+          ? 'auth-failed'
+          : e is StateError && e.message == 'stale-telemetry'
+          ? 'stale-telemetry'
+          : 'heartbeat-failed';
+      _disconnected(cause);
       client?.disconnect();
     } finally {
       renewing = false;
@@ -239,6 +303,7 @@ class MqttRobotRepository implements RobotRepository {
   Future<void> dispose() async {
     closed = true;
     timer?.cancel();
+    _reconnectTimer?.cancel();
     await subscription?.cancel();
     client?.disconnect();
     for (final p in pending.values) {
