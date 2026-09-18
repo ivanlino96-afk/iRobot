@@ -72,7 +72,9 @@ export class Broker {
     });
   }
   async grant(username, password, id, expires, device = false) {
-    let prefix = "airobot/v1/robots/+/";
+    // A credential is scoped to exactly one robot. A '+' here would let a
+    // device or app session operate on every robot topic.
+    let prefix = `airobot/v1/robots/${id}/`;
     const role = username;
     let acls = [];
     for (let suffix of device

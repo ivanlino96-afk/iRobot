@@ -1,0 +1,17 @@
+# Copy this file to /etc/dokploy/traefik/dynamic/mqtt.yml on the VPS.
+# It exposes MQTTS through the existing HTTPS/TLS entry point on port 443.
+tcp:
+  routers:
+    mqtt:
+      entryPoints:
+        - websecure
+      rule: "HostSNI(`mqtt.3dlab.site`)"
+      service: mqtt
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    mqtt:
+      loadBalancer:
+        servers:
+          - address: "airobot-broker:1883"

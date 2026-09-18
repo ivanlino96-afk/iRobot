@@ -5,6 +5,7 @@
 #include <WiFi.h>
 #include <Wire.h>
 #include <atomic>
+#include <cstring>
 #include <esp_timer.h>
 #include <mbedtls/base64.h>
 #include <mbedtls/pk.h>
@@ -16,7 +17,7 @@
 constexpr char WIFI_SSID[] = "", WIFI_PASSWORD[] = "", MQTT_HOST[] = "",
                ROBOT_ID[] = "UNPROVISIONED", MQTT_USERNAME[] = "",
                MQTT_PASSWORD[] = "";
-constexpr uint16_t MQTT_PORT = 8883;
+constexpr uint16_t MQTT_PORT = 443;
 #endif
 #if __has_include("ca_cert.h") && __has_include("server_key.h")
 #include "ca_cert.h"
@@ -89,12 +90,66 @@ Adafruit_PWMServoDriver pwm;
 esp_mqtt_client_handle_t mqtt = nullptr;
 std::atomic<bool> connected{false}, overflow{false};
 QueueHandle_t incoming, normalQueue, emergencyQueue;
+bool networkProvisioned = false, mqttStarted = false;
 struct Message {
   std::string raw, token, claims;
   bool retained = false, emergency = false;
 };
 std::string prefix() {
   return std::string("airobot/v1/robots/") + ROBOT_ID + "/";
+}
+void mqttEvent(void *, esp_event_base_t, int32_t event, void *data);
+bool configured(const char *value) {
+  return value && value[0] && strcmp(value, "replace-me") &&
+         strcmp(value, "mqtt.example.com") && strcmp(value, "UNPROVISIONED") &&
+         !strstr(value, "REPLACE_");
+}
+bool networkConfigurationValid() {
+#if PROVISIONED
+  return configured(WIFI_SSID) && configured(WIFI_PASSWORD) &&
+         configured(MQTT_HOST) && configured(ROBOT_ID) &&
+         configured(MQTT_USERNAME) && configured(MQTT_PASSWORD) &&
+         MQTT_PORT != 0 && strstr(BROKER_CA_CERT, "BEGIN CERTIFICATE") &&
+         strstr(SERVER_PUBLIC_KEY, "BEGIN PUBLIC KEY");
+#else
+  return false;
+#endif
+}
+bool clockReady() {
+  // TLS certificate validation needs a trustworthy wall clock.
+  return time(nullptr) > 1704067200; // 2024-01-01 UTC
+}
+void startMqtt() {
+  if (mqttStarted || WiFi.status() != WL_CONNECTED || !clockReady())
+    return;
+  static std::string uri = std::string("mqtts://") + MQTT_HOST + ":" +
+                               std::to_string(MQTT_PORT),
+                     willTopic = prefix() + "availability";
+  esp_mqtt_client_config_t cfg = {};
+  cfg.uri = uri.c_str();
+  cfg.client_id = ROBOT_ID;
+  cfg.username = MQTT_USERNAME;
+  cfg.password = MQTT_PASSWORD;
+  cfg.cert_pem = BROKER_CA_CERT;
+  cfg.lwt_topic = willTopic.c_str();
+  cfg.lwt_msg = "offline";
+  cfg.lwt_qos = 1;
+  cfg.lwt_retain = 1;
+  cfg.buffer_size = 4096;
+  cfg.out_buffer_size = 4096;
+  cfg.keepalive = 10;
+  mqtt = esp_mqtt_client_init(&cfg);
+  if (!mqtt) {
+    Serial.println("MQTT initialization failed");
+    return;
+  }
+  esp_mqtt_client_register_event(
+      mqtt, static_cast<esp_mqtt_event_id_t>(ESP_EVENT_ANY_ID), mqttEvent,
+      nullptr);
+  esp_mqtt_client_start(mqtt);
+  mqttStarted = true;
+  Serial.printf("MQTTS started for %s at %s:%u\n", ROBOT_ID, MQTT_HOST,
+                MQTT_PORT);
 }
 void publish(const char *suffix, Json &doc, bool retained = false,
              int qos = 1) {
@@ -335,34 +390,16 @@ void setup() {
     runtime.core.fault("storage-unavailable");
   }
   xTaskCreate(verificationTask, "verify", 12288, nullptr, 1, nullptr);
-#if PROVISIONED
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-  static std::string uri = std::string("mqtts://") + MQTT_HOST + ":" +
-                           std::to_string(MQTT_PORT),
-                     willTopic = prefix() + "availability";
-  esp_mqtt_client_config_t cfg = {};
-  cfg.uri = uri.c_str();
-  cfg.client_id = ROBOT_ID;
-  cfg.username = MQTT_USERNAME;
-  cfg.password = MQTT_PASSWORD;
-  cfg.cert_pem = BROKER_CA_CERT;
-  cfg.lwt_topic = willTopic.c_str();
-  cfg.lwt_msg = "offline";
-  cfg.lwt_qos = 1;
-  cfg.lwt_retain = 1;
-  cfg.buffer_size = 4096;
-  cfg.out_buffer_size = 4096;
-  cfg.keepalive = 10;
-  mqtt = esp_mqtt_client_init(&cfg);
-  esp_mqtt_client_register_event(
-      mqtt, static_cast<esp_mqtt_event_id_t>(ESP_EVENT_ANY_ID), mqttEvent,
-      nullptr);
-  esp_mqtt_client_start(mqtt);
-#else
-  Serial.println("Provision secrets.h, ca_cert.h and server_key.h for MQTTS. "
-                 "No insecure fallback.");
-#endif
+  networkProvisioned = networkConfigurationValid();
+  if (networkProvisioned) {
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    Serial.printf("Waiting for Wi-Fi and NTP before MQTTS (%s:%u)\n",
+                  MQTT_HOST, MQTT_PORT);
+  } else {
+    Serial.println("Provision secrets.h, ca_cert.h and server_key.h for MQTTS. "
+                   "No insecure fallback or placeholder credentials.");
+  }
 }
 void loop() {
   static uint64_t lastPublish = 0, lastWifi = 0, lastStep = 0;
@@ -445,8 +482,10 @@ void loop() {
   }
   if (now - lastWifi > 5000) {
     lastWifi = now;
-    if (PROVISIONED && WiFi.status() != WL_CONNECTED)
+    if (networkProvisioned && WiFi.status() != WL_CONNECTED)
       WiFi.reconnect();
   }
+  if (networkProvisioned && !mqttStarted)
+    startMqtt();
   delay(1);
 }

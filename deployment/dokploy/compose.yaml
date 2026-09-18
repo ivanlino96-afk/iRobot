@@ -23,14 +23,12 @@ services:
     user: "1883:1883"
     volumes:
       - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      - ${AIROBOT_PRIVATE_DIR:?Set the absolute VPS secrets directory}/mqtt:/run/airobot:ro
       - ${AIROBOT_PRIVATE_DIR}/broker:/mosquitto/data
-    ports:
-      - "8883:8883"
     networks:
-      internal:
+      internal: {}
+      dokploy-network:
         aliases:
-          - ${MQTT_PUBLIC_HOST:?Set the MQTT hostname}
+          - airobot-broker
 
   api:
     build:
@@ -41,17 +39,18 @@ services:
       DATABASE_URL: postgres://airobot:${POSTGRES_PASSWORD}@postgres:5432/airobot
       AUTH_SECRET: ${AUTH_SECRET:?Set an authentication secret}
       SIGNING_KEY: /run/airobot/signing.pem
-      MQTT_URL: mqtts://${MQTT_PUBLIC_HOST}:8883
+      MQTT_URL: mqtts://${MQTT_PUBLIC_HOST}:443
       MQTT_CA: /run/mqtt/ca.crt
       MQTT_ADMIN_USER: admin
       MQTT_ADMIN_PASSWORD: ${MQTT_ADMIN_PASSWORD:?Set the broker administrator password}
       MQTT_PUBLIC_HOST: ${MQTT_PUBLIC_HOST}
-      MQTT_PUBLIC_PORT: "8883"
+      MQTT_PUBLIC_PORT: "443"
       BIND_ADDRESS: 0.0.0.0
       PORT: "8080"
     volumes:
       - ${AIROBOT_PRIVATE_DIR}/api:/run/airobot:ro
       - ${AIROBOT_PRIVATE_DIR}/mqtt/ca.crt:/run/mqtt/ca.crt:ro
+      - ${AIROBOT_PRIVATE_DIR}/provision:/run/provision
     expose: ["8080"]
     networks: [internal, dokploy-network]
     depends_on:

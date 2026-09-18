@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../domain/models.dart';
+import '../data/mqtt_connectivity_probe.dart';
 import '../data/mqtt_robot_repository.dart';
 import 'robot_view_model.dart';
 import 'sidebar_menu.dart';
@@ -11,6 +12,7 @@ import 'motion_popup.dart';
 import 'design_tokens.dart';
 import 'safety_notice.dart';
 import 'bottom_nav_bar.dart';
+import 'sequence_builder_screen.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, this.model});
@@ -280,7 +282,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             () => vm.send('goHome', {'speedPercent': speed}),
                           )
                         : null,
-                    onCreateSequence: () => selectPage(3),
+                    onCreateSequence: addSequence,
                   ),
                 ),
                 appBar: AppBar(
@@ -508,7 +510,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
             const SizedBox(height: 24),
             FilledButton.icon(
-              onPressed: () => selectPage(3),
+              onPressed: addSequence,
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xff0d0d0d),
                 foregroundColor: Colors.white,
@@ -1636,12 +1638,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       title('Programas', 'Secuencias guardadas para tu robot.'),
-      OutlinedButton.icon(
-        onPressed: vm.repository != null
-            ? () => run(vm.loadPrograms, success: 'Programas actualizados')
-            : null,
-        icon: const Icon(Icons.refresh),
-        label: const Text('Actualizar'),
+      Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        children: [
+          FilledButton.icon(
+            onPressed: vm.repository != null ? addSequence : null,
+            icon: const Icon(Icons.add_location_alt_outlined),
+            label: const Text('Agregar secuencia'),
+          ),
+          OutlinedButton.icon(
+            onPressed: vm.repository != null
+                ? () => run(vm.loadPrograms, success: 'Programas actualizados')
+                : null,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Actualizar'),
+          ),
+        ],
       ),
       const SizedBox(height: 16),
       if (vm.saved.isEmpty)
@@ -1788,6 +1801,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ),
       ),
       const SizedBox(height: 16),
+      remoteConnectivityProbe(),
+      const SizedBox(height: 16),
       card(
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1889,6 +1904,91 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ),
     ],
   );
+
+  Widget remoteConnectivityProbe() {
+    final result = vm.connectivityProbe;
+    final selectedRobot = vm.selectedProbeRobotId;
+    final canTest =
+        vm.api != null && selectedRobot != null && !vm.busy && !vm.connecting;
+    return card(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Prueba de enlace remoto',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Comprueba API → VPS con TLS → telemetría ESP32. No envía movimientos.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 16),
+          if (vm.robots.isNotEmpty)
+            DropdownButtonFormField<String>(
+              key: const ValueKey('connectivity-probe-robot'),
+              initialValue: selectedRobot,
+              decoration: const InputDecoration(labelText: 'Robot a comprobar'),
+              items: vm.robots
+                  .map((id) => DropdownMenuItem(value: id, child: Text(id)))
+                  .toList(),
+              onChanged: vm.connectivityProbeRunning
+                  ? null
+                  : vm.selectProbeRobot,
+            )
+          else
+            const Text('Inicia sesión y empareja un robot para habilitar la prueba.'),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              probeStage('1 · API', result.api),
+              probeStage('2 · VPS / TLS', result.broker),
+              probeStage('3 · ESP32', result.robot),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(result.message, style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            key: const ValueKey('run-connectivity-probe'),
+            onPressed: canTest && !vm.connectivityProbeRunning
+                ? vm.testRemoteConnectivity
+                : null,
+            icon: vm.connectivityProbeRunning
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.network_check_outlined),
+            label: Text(
+              vm.connectivityProbeRunning
+                  ? 'Comprobando enlace…'
+                  : 'Probar enlace seguro',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget probeStage(String label, ConnectivityProbeStage stage) {
+    final (IconData icon, Color color) = switch (stage) {
+      ConnectivityProbeStage.passed => (Icons.check_circle_outline, Colors.green),
+      ConnectivityProbeStage.failed => (Icons.error_outline, context.tokens.danger),
+      ConnectivityProbeStage.checking => (
+          Icons.sync_outlined,
+          Theme.of(context).colorScheme.primary,
+        ),
+      ConnectivityProbeStage.pending => (Icons.circle_outlined, context.tokens.muted),
+    };
+    return Chip(
+      avatar: Icon(icon, size: 18, color: color),
+      label: Text(label),
+    );
+  }
 
   Widget diagnostics() {
     final repo = vm.repository;
@@ -1997,56 +2097,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> reference() async {
-    final controllers = List.generate(
+    final home = List.generate(
       7,
-      (i) => TextEditingController(
-        text: vm.snapshot.simulation ? vm.profile?.home[i].toString() : '',
-      ),
+      (i) => vm.snapshot.simulation ? vm.profile?.home[i].toString() ?? '' : '',
     );
     await showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Confirmar referencia'),
-        content: SizedBox(
-          width: 420,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Introduce los ángulos del montaje observado. Registrar la referencia no mueve el brazo ni mide su posición.',
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    for (int i = 0; i < 7; i++)
-                      field('J${i + 1} · °', controllers[i]),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () {
-              run(() => vm.reference(controllers.map(value).toList()));
-              Navigator.pop(ctx);
-            },
-            child: const Text('Confirmar ángulos'),
-          ),
-        ],
+      builder: (_) => _ReferenceDialog(
+        home: home,
+        onConfirm: (build) => run(() async => vm.reference(build())),
       ),
     );
-    for (final c in controllers) {
-      c.dispose();
-    }
   }
 
   Future<void> profileEditor() async {
@@ -2094,6 +2155,30 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ),
     );
     editor.dispose();
+  }
+
+  Future<void> addSequence() async {
+    if (vm.steps.isNotEmpty) {
+      final discard = await confirm(
+        '¿Descartar puntos sin guardar?',
+        'Hay ${vm.steps.length} punto(s) de una sesión anterior sin guardar. Empezar una secuencia nueva los descartará.',
+        confirmLabel: 'Descartar y continuar',
+        destructive: true,
+      );
+      if (!discard || !mounted) return;
+    }
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => const _SequenceNameDialog(),
+    );
+    if (name == null || name.isEmpty || !mounted) return;
+    vm.discardSteps();
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SequenceBuilderScreen(vm: vm, sequenceName: name),
+      ),
+    );
   }
 
   Future<bool> confirm(
@@ -2205,4 +2290,133 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       c.dispose();
     }
   }
+}
+
+// Owns its TextEditingController via normal widget lifecycle (disposed only
+// once the dialog is actually unmounted) instead of disposing it right after
+// showDialog's future resolves, which races the dialog's closing transition
+// and crashes when the autofocused field loses focus mid-animation.
+// Same rationale as _SequenceNameDialog: owns its TextEditingControllers via
+// normal widget lifecycle instead of disposing them right after showDialog's
+// future resolves, which races the dialog's closing transition and crashes
+// (disposed TextEditingController used mid-animation).
+class _ReferenceDialog extends StatefulWidget {
+  const _ReferenceDialog({required this.home, required this.onConfirm});
+
+  final List<String> home;
+  final void Function(List<double> Function() build) onConfirm;
+
+  @override
+  State<_ReferenceDialog> createState() => _ReferenceDialogState();
+}
+
+class _ReferenceDialogState extends State<_ReferenceDialog> {
+  late final controllers = [
+    for (final text in widget.home) TextEditingController(text: text),
+  ];
+
+  @override
+  void dispose() {
+    for (final c in controllers) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  List<double> _build() => [
+    for (final c in controllers)
+      double.tryParse(c.text.replaceAll(',', '.')) ??
+          (throw const FormatException('Introduce un número válido')),
+  ];
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Confirmar referencia'),
+    content: SizedBox(
+      width: 420,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Introduce los ángulos del montaje observado. Registrar la referencia no mueve el brazo ni mide su posición.',
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                for (int i = 0; i < controllers.length; i++)
+                  SizedBox(
+                    width: 140,
+                    child: TextField(
+                      controller: controllers[i],
+                      keyboardType: const TextInputType.numberWithOptions(
+                        signed: true,
+                        decimal: true,
+                      ),
+                      decoration: InputDecoration(labelText: 'J${i + 1} · °'),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancelar'),
+      ),
+      FilledButton(
+        onPressed: () {
+          widget.onConfirm(_build);
+          Navigator.pop(context);
+        },
+        child: const Text('Confirmar ángulos'),
+      ),
+    ],
+  );
+}
+
+class _SequenceNameDialog extends StatefulWidget {
+  const _SequenceNameDialog();
+
+  @override
+  State<_SequenceNameDialog> createState() => _SequenceNameDialogState();
+}
+
+class _SequenceNameDialogState extends State<_SequenceNameDialog> {
+  final controller = TextEditingController();
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Nombre de la secuencia'),
+    content: TextField(
+      controller: controller,
+      autofocus: true,
+      maxLength: 80,
+      decoration: const InputDecoration(labelText: 'Nombre'),
+      onChanged: (_) => setState(() {}),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancelar'),
+      ),
+      FilledButton(
+        onPressed: controller.text.trim().isEmpty
+            ? null
+            : () => Navigator.pop(context, controller.text.trim()),
+        child: const Text('Continuar'),
+      ),
+    ],
+  );
 }

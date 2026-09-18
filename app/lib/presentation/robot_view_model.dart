@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart';
 import 'package:airobot_kinematics/airobot_kinematics.dart';
 import '../domain/models.dart';
 import '../data/simulator_repository.dart';
+import '../data/mqtt_connectivity_probe.dart';
 import '../data/mqtt_robot_repository.dart';
 import '../infrastructure/api_client.dart';
 import '../infrastructure/event_log.dart';
@@ -111,6 +112,56 @@ class RobotViewModel extends ChangeNotifier {
   }
 
   String? connectionError;
+  bool connectivityProbeRunning = false;
+  ConnectivityProbeResult connectivityProbe = ConnectivityProbeResult.idle();
+  String? connectivityProbeRobotId;
+
+  String? get selectedProbeRobotId {
+    if (connectivityProbeRobotId != null &&
+        robots.contains(connectivityProbeRobotId)) {
+      return connectivityProbeRobotId;
+    }
+    if (robotId.isNotEmpty && robotId != 'SIMULADOR' && robots.contains(robotId)) {
+      return robotId;
+    }
+    return robots.isEmpty ? null : robots.first;
+  }
+
+  void selectProbeRobot(String? id) {
+    connectivityProbeRobotId = id;
+    connectivityProbe = ConnectivityProbeResult.idle();
+    notifyListeners();
+  }
+
+  Future<void> testRemoteConnectivity() async {
+    final id = selectedProbeRobotId;
+    if (api == null || id == null) {
+      throw StateError('Inicia sesión y selecciona un robot emparejado');
+    }
+    if (connectivityProbeRunning) return;
+    connectivityProbeRunning = true;
+    connectivityProbe = ConnectivityProbeResult(
+      api: ConnectivityProbeStage.checking,
+      broker: ConnectivityProbeStage.pending,
+      robot: ConnectivityProbeStage.pending,
+      message: 'Preparando la prueba segura…',
+    );
+    notifyListeners();
+    try {
+      final result = await MqttConnectivityProbe(api!, id).run(
+        onUpdate: (next) {
+          connectivityProbe = next;
+          notifyListeners();
+        },
+      );
+      connectivityProbe = result;
+      eventLog.add('connectivity-probe', result.message);
+    } finally {
+      connectivityProbeRunning = false;
+      notifyListeners();
+    }
+  }
+
   String get connectionLabel => connecting
       ? 'Conectando…'
       : robotId == 'SIMULADOR' && snapshot.connected
@@ -547,7 +598,7 @@ class RobotViewModel extends ChangeNotifier {
     await moveJoint(joint, snapshot.joints[joint] + degrees, speed);
   }
 
-  void teach(int speed, int pause) {
+  void teach(int speed, int pause, {String name = ''}) {
     if (!snapshot.reference || snapshot.tcp == null) {
       throw StateError('No hay TCP estimado válido');
     }
@@ -558,8 +609,17 @@ class RobotViewModel extends ChangeNotifier {
         gripper: snapshot.joints[6],
         speed: speed,
         pauseMs: pause,
+        name: name,
       ),
     );
+    notifyListeners();
+  }
+
+  bool get isIdle => !busy && !holding && snapshot.state == 'READY';
+
+  void discardSteps() {
+    steps.clear();
+    editingProgramId = null;
     notifyListeners();
   }
 
