@@ -411,6 +411,7 @@ class RobotViewModel extends ChangeNotifier {
     robots = (await api!.get('/robots') as List)
         .map((e) => e['id'] as String)
         .toList();
+    notifyListeners();
   }
 
   Future<void> pair(String qr) async {
@@ -427,6 +428,7 @@ class RobotViewModel extends ChangeNotifier {
     robots = (await api!.get('/robots') as List)
         .map((e) => e['id'] as String)
         .toList();
+    notifyListeners();
   }
 
   Future<void> connect(String id) async {

@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'design_tokens.dart';
 import 'login_page.dart';
+import 'robot_view_model.dart';
 
 /// Onboarding splash screen, shape inspired by a common two-panel
 /// (illustration + rounded white card) pattern. Visual-only for now.
 class GetStartedPage extends StatelessWidget {
-  const GetStartedPage({super.key});
+  const GetStartedPage({super.key, required this.vm});
+  final RobotViewModel vm;
 
   static const _background = LinearGradient(
     begin: Alignment.topLeft,
@@ -80,7 +82,7 @@ class GetStartedPage extends StatelessWidget {
                             ),
                             onPressed: () => Navigator.of(context).push(
                               MaterialPageRoute(
-                                builder: (_) => const LoginPage(),
+                                builder: (_) => LoginPage(vm: vm),
                               ),
                             ),
                             child: const Text(

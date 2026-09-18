@@ -13,6 +13,7 @@ import 'design_tokens.dart';
 import 'safety_notice.dart';
 import 'bottom_nav_bar.dart';
 import 'sequence_builder_screen.dart';
+import 'login_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, this.model});
@@ -1936,8 +1937,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   ? null
                   : vm.selectProbeRobot,
             )
+          else if (vm.api == null)
+            OutlinedButton.icon(
+              key: const ValueKey('open-login'),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => LoginPage(vm: vm)),
+              ),
+              icon: const Icon(Icons.login),
+              label: const Text('Iniciar sesión'),
+            )
           else
-            const Text('Inicia sesión y empareja un robot para habilitar la prueba.'),
+            OutlinedButton.icon(
+              key: const ValueKey('open-pair'),
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (_) => _PairRobotDialog(vm: vm),
+              ),
+              icon: const Icon(Icons.qr_code_2_outlined),
+              label: const Text('Emparejar robot'),
+            ),
           const SizedBox(height: 14),
           Wrap(
             spacing: 10,
@@ -2416,6 +2435,86 @@ class _SequenceNameDialogState extends State<_SequenceNameDialog> {
             ? null
             : () => Navigator.pop(context, controller.text.trim()),
         child: const Text('Continuar'),
+      ),
+    ],
+  );
+}
+
+class _PairRobotDialog extends StatefulWidget {
+  const _PairRobotDialog({required this.vm});
+  final RobotViewModel vm;
+
+  @override
+  State<_PairRobotDialog> createState() => _PairRobotDialogState();
+}
+
+class _PairRobotDialogState extends State<_PairRobotDialog> {
+  final controller = TextEditingController();
+  bool submitting = false;
+  String? error;
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> submit() async {
+    setState(() {
+      submitting = true;
+      error = null;
+    });
+    try {
+      await widget.vm.pair(controller.text.trim());
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      setState(() => error = 'No se pudo emparejar: $e');
+    } finally {
+      if (mounted) setState(() => submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Emparejar robot'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Pega aquí el contenido de pairing.json.'),
+        const SizedBox(height: 12),
+        TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 6,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            hintText: '{"robotId":"AR-001","token":"..."}',
+          ),
+          onChanged: (_) => setState(() {}),
+        ),
+        if (error != null) ...[
+          const SizedBox(height: 12),
+          Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        ],
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: submitting ? null : () => Navigator.pop(context),
+        child: const Text('Cancelar'),
+      ),
+      FilledButton(
+        onPressed: submitting || controller.text.trim().isEmpty
+            ? null
+            : submit,
+        child: submitting
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Text('Emparejar'),
       ),
     ],
   );

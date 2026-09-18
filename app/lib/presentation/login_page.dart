@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'design_tokens.dart';
+import 'robot_view_model.dart';
 
-/// Visual-only login screen — no auth wiring yet.
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  const LoginPage({super.key, required this.vm});
+  final RobotViewModel vm;
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
@@ -13,6 +14,29 @@ class _LoginPageState extends State<LoginPage> {
   final password = TextEditingController();
   bool rememberMe = false;
   bool obscurePassword = true;
+  bool isRegisterMode = false;
+  bool submitting = false;
+  String? error;
+
+  Future<void> submit() async {
+    setState(() {
+      submitting = true;
+      error = null;
+    });
+    try {
+      await widget.vm.login(
+        'https://api.3dlab.site',
+        email.text.trim(),
+        password.text,
+        isRegisterMode,
+      );
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      setState(() => error = 'No se pudo continuar: $e');
+    } finally {
+      if (mounted) setState(() => submitting = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -43,7 +67,9 @@ class _LoginPageState extends State<LoginPage> {
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'Inicia sesión para\nseguir el control de\ntu robot.',
+                      isRegisterMode
+                          ? 'AiRobot\nCrea tu cuenta'
+                          : 'AiRobot\nInicia sesión',
                       style: Theme.of(context).textTheme.headlineMedium
                           ?.copyWith(fontWeight: FontWeight.bold),
                     ),
@@ -67,7 +93,7 @@ class _LoginPageState extends State<LoginPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Iniciar sesión',
+                          isRegisterMode ? 'Crear cuenta' : 'Iniciar sesión',
                           style: Theme.of(context).textTheme.headlineMedium
                               ?.copyWith(fontWeight: FontWeight.bold),
                         ),
@@ -75,18 +101,36 @@ class _LoginPageState extends State<LoginPage> {
                         Row(
                           children: [
                             Text(
-                              '¿No tienes cuenta? ',
+                              isRegisterMode
+                                  ? '¿Ya tienes cuenta? '
+                                  : '¿No tienes cuenta? ',
                               style: TextStyle(color: tokens.muted),
                             ),
-                            Text(
-                              'Regístrate',
-                              style: TextStyle(
-                                color: Theme.of(context).colorScheme.primary,
-                                fontWeight: FontWeight.w700,
+                            InkWell(
+                              onTap: submitting
+                                  ? null
+                                  : () => setState(
+                                      () => isRegisterMode = !isRegisterMode,
+                                    ),
+                              child: Text(
+                                isRegisterMode ? 'Inicia sesión' : 'Regístrate',
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.primary,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
                           ],
                         ),
+                        if (error != null) ...[
+                          const SizedBox(height: 16),
+                          Text(
+                            error!,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 24),
                         TextField(
                           controller: email,
@@ -151,14 +195,25 @@ class _LoginPageState extends State<LoginPage> {
                             style: FilledButton.styleFrom(
                               shape: const StadiumBorder(),
                             ),
-                            onPressed: () {},
-                            child: const Text(
-                              'Iniciar sesión',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
+                            onPressed: submitting ? null : submit,
+                            child: submitting
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Text(
+                                    isRegisterMode
+                                        ? 'Crear cuenta'
+                                        : 'Iniciar sesión',
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
                           ),
                         ),
                         const SizedBox(height: 22),
