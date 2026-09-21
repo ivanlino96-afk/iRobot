@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:airobot/main.dart';
 import 'package:airobot/presentation/home_page.dart';
 import 'package:airobot/presentation/robot_view_model.dart';
+import 'package:airobot/presentation/theme.dart';
 import 'package:airobot/domain/models.dart';
 
 void main() {
@@ -44,7 +44,12 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      await tester.pumpWidget(const AiRobotApp());
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: airobotTheme(),
+          home: HomePage(model: RobotViewModel()),
+        ),
+      );
       expect(find.text('UNKNOWN'), findsNothing);
       expect(find.text('Crear secuencia'), findsOneWidget);
       expect(find.byType(NavigationBar), findsNothing);

@@ -173,16 +173,31 @@ void mqttEvent(void *, esp_event_base_t, int32_t event, void *data) {
   static Message *partial = nullptr;
   if (event == MQTT_EVENT_CONNECTED) {
     connected = true;
+    Serial.println("MQTT connected to broker");
     esp_mqtt_client_enqueue(mqtt, (prefix() + "availability").c_str(), "online",
                             6, 1, true, true);
     for (auto suffix : {"command", "emergency", "config"})
       esp_mqtt_client_subscribe(mqtt, (prefix() + suffix).c_str(), 1);
   } else if (event == MQTT_EVENT_DISCONNECTED) {
     connected = false;
+    Serial.println("MQTT disconnected from broker");
     if (partial) {
       delete partial;
       partial = nullptr;
     }
+  } else if (event == MQTT_EVENT_ERROR) {
+    Serial.printf("MQTT error type=%d", e->error_handle->error_type);
+    if (e->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
+      Serial.printf(" tls_last_esp_err=0x%x tls_stack_err=0x%x sock_errno=%d",
+                    e->error_handle->esp_tls_last_esp_err,
+                    e->error_handle->esp_tls_stack_err,
+                    e->error_handle->esp_transport_sock_errno);
+    } else if (e->error_handle->error_type ==
+               MQTT_ERROR_TYPE_CONNECTION_REFUSED) {
+      Serial.printf(" connect_return_code=%d",
+                    e->error_handle->connect_return_code);
+    }
+    Serial.println();
   } else if (event == MQTT_EVENT_DATA) {
     if (e->current_data_offset == 0) {
       delete partial;
@@ -229,6 +244,8 @@ void verificationTask(void *) {
   }
 }
 void process(Message *m) {
+  Serial.printf("Comando recibido (%s, %u bytes)\n",
+                m->emergency ? "emergency" : "command", m->raw.size());
   const auto previousHash = runtime.core.profile.hash;
   runtime.verify = [&](const std::string &token, Json &claims) {
     return token == m->token && !m->claims.empty() &&
@@ -240,6 +257,11 @@ void process(Message *m) {
     runtime.hardwareReady = false;
     runtime.simulation = true;
   }
+  Serial.printf("Ack: status=%s reason=%s\n",
+                ack["status"].is<const char *>() ? ack["status"].as<const char *>()
+                                                  : "?",
+                ack["reason"].is<const char *>() ? ack["reason"].as<const char *>()
+                                                  : "-");
   publish("ack", ack);
   delete m;
   runtime.verify = {};
@@ -392,6 +414,12 @@ void setup() {
   xTaskCreate(verificationTask, "verify", 12288, nullptr, 1, nullptr);
   networkProvisioned = networkConfigurationValid();
   if (networkProvisioned) {
+    // Explicit STA mode before begin() avoids a race where the radio isn't
+    // ready to associate yet (seen as a silent WL_DISCONNECTED hang).
+    WiFi.mode(WIFI_STA);
+    // This board's onboard regulator can't sustain default (~19.5dBm) TX
+    // power during the WiFi auth handshake, causing spurious auth failures.
+    WiFi.setTxPower(WIFI_POWER_8_5dBm);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     configTime(0, 0, "pool.ntp.org", "time.nist.gov");
     Serial.printf("Waiting for Wi-Fi and NTP before MQTTS (%s:%u)\n",

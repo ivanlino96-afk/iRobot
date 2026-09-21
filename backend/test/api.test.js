@@ -60,6 +60,59 @@ test("password hashing and validation", () => {
   assert(!passwordValid("wrong", h));
   assert.throws(() => passwordHash("short"));
 });
+test("register stores optional name", async () => {
+  let f = await fixture();
+  await request(f.app)
+    .post("/auth/register")
+    .send({
+      email: "carla@example.com",
+      password: "long-password-789",
+      name: "Carla",
+    })
+    .expect(201);
+  let row = (
+    await f.db.query("SELECT name FROM users WHERE email=$1", [
+      "carla@example.com",
+    ])
+  ).rows[0];
+  assert.equal(row.name, "Carla");
+});
+test("GET /me returns the authenticated user's email and name", async () => {
+  let f = await fixture();
+  const carla = await request(f.app)
+    .post("/auth/register")
+    .send({
+      email: "dana@example.com",
+      password: "long-password-789",
+      name: "Dana",
+    })
+    .expect(201);
+  const me = await authorized(f.app, carla.body.token, "get", "/me").expect(
+    200,
+  );
+  assert.equal(me.body.email, "dana@example.com");
+  assert.equal(me.body.name, "Dana");
+  const noName = await authorized(f.app, f.a, "get", "/me").expect(200);
+  assert.equal(noName.body.email, "one@example.com");
+  assert.equal(noName.body.name, null);
+});
+test("PATCH /me sets and updates the authenticated user's name", async () => {
+  let f = await fixture();
+  await authorized(f.app, f.a, "patch", "/me")
+    .send({ name: "Ivan" })
+    .expect(200);
+  let me = await authorized(f.app, f.a, "get", "/me").expect(200);
+  assert.equal(me.body.name, "Ivan");
+  await authorized(f.app, f.a, "patch", "/me")
+    .send({ name: "Ivan Lino" })
+    .expect(200);
+  me = await authorized(f.app, f.a, "get", "/me").expect(200);
+  assert.equal(me.body.name, "Ivan Lino");
+  await authorized(f.app, f.a, "patch", "/me").send({ name: "" }).expect(400);
+  await authorized(f.app, f.a, "patch", "/me")
+    .send({ name: "x".repeat(255) })
+    .expect(400);
+});
 test("single-use pairing and shared robot access", async () => {
   let f = await fixture();
   await authorized(f.app, f.a, "post", "/pair")

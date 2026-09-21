@@ -121,7 +121,9 @@ class RobotViewModel extends ChangeNotifier {
         robots.contains(connectivityProbeRobotId)) {
       return connectivityProbeRobotId;
     }
-    if (robotId.isNotEmpty && robotId != 'SIMULADOR' && robots.contains(robotId)) {
+    if (robotId.isNotEmpty &&
+        robotId != 'SIMULADOR' &&
+        robots.contains(robotId)) {
       return robotId;
     }
     return robots.isEmpty ? null : robots.first;
@@ -400,17 +402,92 @@ class RobotViewModel extends ChangeNotifier {
     steps.clear();
   }
 
+  String? userName;
+
   Future<void> login(
     String url,
     String email,
     String password,
-    bool register,
-  ) async {
+    bool register, {
+    String? name,
+  }) async {
     api = ApiClient(url);
-    await api!.login(email, password, register: register);
+    await api!.login(email, password, register: register, name: name);
     robots = (await api!.get('/robots') as List)
         .map((e) => e['id'] as String)
         .toList();
+    try {
+      final me = await api!.get('/me') as Map;
+      userName = me['name'] as String?;
+    } catch (_) {
+      userName = null;
+    }
+    notifyListeners();
+  }
+
+  Future<void> updateDisplayName(String name) async {
+    await api!.patch('/me', {'name': name});
+    userName = name;
+    notifyListeners();
+  }
+
+  Future<void> logout() async {
+    await api?.logout();
+    api = null;
+    userName = null;
+    robots = [];
+    autoConnectError = null;
+    await subscription?.cancel();
+    subscription = null;
+    await repository?.dispose();
+    repository = null;
+    profile = null;
+    snapshot = const RobotSnapshot();
+    robotId = '';
+    connectionError = null;
+    saved = [];
+    steps.clear();
+    editingProgramId = null;
+    notifyListeners();
+  }
+
+  static const _apiUrl = 'https://api.3dlab.site';
+  String? autoConnectError;
+
+  Future<void> tryAutoConnect() async {
+    if (api != null) return;
+    final candidate = ApiClient(_apiUrl);
+    await candidate.restore();
+    if (candidate.token == null) return;
+    api = candidate;
+    try {
+      robots = (await api!.get('/robots') as List)
+          .map((e) => e['id'] as String)
+          .toList();
+      try {
+        final me = await api!.get('/me') as Map;
+        userName = me['name'] as String?;
+      } catch (_) {
+        userName = null;
+      }
+    } catch (e) {
+      api = null;
+      robots = [];
+      autoConnectError = 'No se ha podido emparejar el robot vinculado a tu cuenta.';
+      notifyListeners();
+      return;
+    }
+    if (robots.isEmpty) {
+      autoConnectError = 'No se ha podido emparejar el robot vinculado a tu cuenta.';
+      notifyListeners();
+      return;
+    }
+    try {
+      await connect(robots.first);
+      autoConnectError = null;
+    } catch (_) {
+      autoConnectError = 'No se ha podido emparejar el robot vinculado a tu cuenta.';
+    }
     notifyListeners();
   }
 

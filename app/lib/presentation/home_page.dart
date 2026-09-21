@@ -24,6 +24,8 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   late final RobotViewModel vm;
+  final scaffoldKey = GlobalKey<ScaffoldState>();
+  bool drawerOpen = false;
   int page = 0, speed = 10, joint = 0, manualMode = 0;
   double linearStep = 5, angularStep = 5;
   bool keepOrientation = true;
@@ -42,6 +44,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     vm = widget.model ?? RobotViewModel();
     robotNameController = TextEditingController(text: vm.robotName);
     WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _autoConnect());
+  }
+
+  Future<void> _autoConnect() async {
+    await vm.tryAutoConnect();
+    if (mounted && vm.autoConnectError != null) {
+      notice(vm.autoConnectError!, error: true);
+    }
   }
 
   @override
@@ -113,6 +123,49 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         error: vm.actionFailed,
       );
     }
+  }
+
+  Future<void> retryConnection() async {
+    if (vm.busy || vm.holding) return;
+    if (vm.api == null) {
+      HapticFeedback.selectionClick();
+      selectPage(4);
+      notice('Inicia sesión para conectar con tu robot.', error: true);
+      return;
+    }
+    if (vm.robots.isEmpty) {
+      HapticFeedback.selectionClick();
+      selectPage(4);
+      notice('Empareja un robot antes de conectar.', error: true);
+      return;
+    }
+    final targetId = vm.robotId.isNotEmpty ? vm.robotId : vm.robots.first;
+    HapticFeedback.selectionClick();
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 16),
+            Text('Reconectando…'),
+          ],
+        ),
+      ),
+    );
+    await vm.act(() => vm.connect(targetId));
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pop();
+    notice(
+      vm.actionFailed ? vm.message : 'Conectado con el ESP32',
+      error: vm.actionFailed,
+    );
   }
 
   void selectPage(int value) {
@@ -272,6 +325,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           child: Stack(
             children: [
               Scaffold(
+                key: scaffoldKey,
                 floatingActionButtonLocation:
                     FloatingActionButtonLocation.endFloat,
                 floatingActionButton: Padding(
@@ -287,6 +341,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   ),
                 ),
                 appBar: AppBar(
+                  automaticallyImplyLeading: false,
+                  leading: wide
+                      ? null
+                      : IconButton(
+                          tooltip: 'Abrir menú',
+                          icon: const Icon(Icons.menu),
+                          onPressed: () =>
+                              scaffoldKey.currentState?.openDrawer(),
+                        ),
                   title: Text(
                     page == 1 ? 'Manual' : 'AiRobot',
                     style: TextStyle(
@@ -296,24 +359,65 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     ),
                   ),
                   actions: [
-                    TextButton.icon(
-                      onPressed: () => selectPage(4),
-                      icon: Icon(
-                        vm.snapshot.connected
-                            ? Icons.sensors
-                            : Icons.sensors_off,
-                        color: vm.snapshot.connected
-                            ? context.tokens.success
-                            : vm.connectionError != null
-                            ? context.tokens.danger
-                            : null,
-                        size: 18,
+                    if (vm.api == null) ...[
+                      wide
+                          ? TextButton.icon(
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => LoginPage(vm: vm),
+                                ),
+                              ),
+                              icon: const Icon(Icons.login, size: 18),
+                              label: const Text('Iniciar sesión'),
+                            )
+                          : IconButton(
+                              tooltip: 'Iniciar sesión',
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => LoginPage(vm: vm),
+                                ),
+                              ),
+                              icon: const Icon(Icons.login),
+                            ),
+                      const SizedBox(width: 8),
+                    ],
+                    Tooltip(
+                      message: vm.connectionError ?? vm.connectionLabel,
+                      child: TextButton.icon(
+                        onPressed: retryConnection,
+                        icon: Icon(
+                          vm.snapshot.connected
+                              ? Icons.sensors
+                              : Icons.sensors_off,
+                          color: vm.snapshot.connected
+                              ? context.tokens.success
+                              : vm.connectionError != null
+                              ? context.tokens.danger
+                              : null,
+                          size: 18,
+                        ),
+                        label: Text(vm.connectionLabel),
                       ),
-                      label: Text(vm.connectionLabel),
                     ),
                     const SizedBox(width: 8),
                   ],
                 ),
+                drawer: wide
+                    ? null
+                    : SidebarMenu(
+                        selectedIndex: page,
+                        onSelected: (index) {
+                          scaffoldKey.currentState?.closeDrawer();
+                          if (vm.holding) stopManual();
+                          selectPage(index);
+                        },
+                        vm: vm,
+                        onClose: () => scaffoldKey.currentState?.closeDrawer(),
+                      ),
+                onDrawerChanged: (opened) =>
+                    setState(() => drawerOpen = opened),
                 body: Column(
                   children: [
                     Expanded(
@@ -324,6 +428,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             SidebarMenu(
                               selectedIndex: page,
                               onSelected: selectPage,
+                              vm: vm,
                             ),
                           Expanded(
                             child: SingleChildScrollView(
@@ -392,7 +497,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   ],
                 ),
               ),
-              if (!wide)
+              if (!wide && !drawerOpen)
                 Positioned(
                   left: 20,
                   right: 20,
@@ -442,7 +547,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Hola, Ivan',
+                    (vm.userName?.isNotEmpty ?? false)
+                        ? 'Hola, ${vm.userName}'
+                        : 'Hola',
                     style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                       fontSize: 32,
                       fontWeight: FontWeight.bold,
@@ -649,7 +756,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             ),
                             decoration: BoxDecoration(
                               color: joint == j
-                                  ? Theme.of(context).colorScheme.primaryContainer
+                                  ? Theme.of(
+                                      context,
+                                    ).colorScheme.primaryContainer
                                   : context.tokens.surfaceMuted,
                               borderRadius: BorderRadius.circular(8),
                             ),
@@ -659,7 +768,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
                                 color: joint == j
-                                    ? Theme.of(context).colorScheme.onPrimaryContainer
+                                    ? Theme.of(
+                                        context,
+                                      ).colorScheme.onPrimaryContainer
                                     : context.tokens.muted,
                               ),
                             ),
@@ -707,9 +818,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             min: min,
             max: max,
             target: target,
-            actual: vm.snapshot.reference
-                ? vm.snapshot.joints[joint]
-                : null,
+            actual: vm.snapshot.reference ? vm.snapshot.joints[joint] : null,
           ),
           Slider(
             value: target,
@@ -804,7 +913,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
             Positioned(
               left:
-                  fractionOf(target) * (constraints.maxWidth - 4).clamp(0, double.infinity),
+                  fractionOf(target) *
+                  (constraints.maxWidth - 4).clamp(0, double.infinity),
               child: Container(
                 width: 4,
                 height: 16,
@@ -817,7 +927,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             if (actual != null)
               Positioned(
                 left:
-                    fractionOf(actual) * (constraints.maxWidth - 10).clamp(0, double.infinity),
+                    fractionOf(actual) *
+                    (constraints.maxWidth - 10).clamp(0, double.infinity),
                 child: Container(
                   width: 10,
                   height: 10,
@@ -1120,11 +1231,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           child: Text(
             position?.toStringAsFixed(1) ?? '—',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: position != null
-                      ? context.tokens.ink
-                      : context.tokens.muted,
-                ),
+              fontWeight: FontWeight.bold,
+              color: position != null
+                  ? context.tokens.ink
+                  : context.tokens.muted,
+            ),
           ),
         ),
       ],
@@ -1221,223 +1332,221 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     required TextEditingController controller,
     required bool isGripper,
     required Color accentColor,
-  }) =>
-      Container(
-        decoration: BoxDecoration(
-          color: context.tokens.surfaceMuted,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: context.tokens.cardBorder),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: accentColor.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: accentColor,
-                ),
-              ),
+  }) => Container(
+    decoration: BoxDecoration(
+      color: context.tokens.surfaceMuted,
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: context.tokens.cardBorder),
+    ),
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+    child: Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: accentColor.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: accentColor,
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: TextFormField(
-                controller: controller,
-                keyboardType: const TextInputType.numberWithOptions(
-                  signed: true,
-                  decimal: true,
-                ),
-                autovalidateMode: AutovalidateMode.onUserInteraction,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: context.tokens.ink,
-                ),
-                decoration: InputDecoration(
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  errorStyle: const TextStyle(height: 0.8, fontSize: 10),
-                  suffixText: unit,
-                  suffixStyle: TextStyle(
-                    fontSize: 11,
-                    color: context.tokens.muted,
-                  ),
-                ),
-                validator: (v) =>
-                    vm.coordinateError(v ?? '', gripper: isGripper),
-              ),
-            ),
-          ],
+          ),
         ),
-      );
+        const SizedBox(width: 8),
+        Expanded(
+          child: TextFormField(
+            controller: controller,
+            keyboardType: const TextInputType.numberWithOptions(
+              signed: true,
+              decimal: true,
+            ),
+            autovalidateMode: AutovalidateMode.onUserInteraction,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: context.tokens.ink,
+            ),
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              errorStyle: const TextStyle(height: 0.8, fontSize: 10),
+              suffixText: unit,
+              suffixStyle: TextStyle(fontSize: 11, color: context.tokens.muted),
+            ),
+            validator: (v) => vm.coordinateError(v ?? '', gripper: isGripper),
+          ),
+        ),
+      ],
+    ),
+  );
 
   Widget coordinateControls() => card(
-        Form(
-          key: coordinateForm,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    Form(
+      key: coordinateForm,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Text(
-                          'Destino TCP',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.primaryContainer,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            'XYZ',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              color: Theme.of(context).colorScheme.onPrimaryContainer,
-                            ),
-                          ),
-                        ),
-                      ],
+              Expanded(
+                child: Row(
+                  children: [
+                    Text(
+                      'Destino TCP',
+                      style: Theme.of(context).textTheme.titleLarge,
                     ),
-                  ),
-                  IconButton.filledTonal(
-                    tooltip: 'Usar posición actual',
-                    onPressed: vm.snapshot.reference && vm.snapshot.connected
-                        ? useCurrentCoordinates
-                        : null,
-                    icon: const Icon(Icons.my_location_rounded, size: 20),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: _minimalInput(
-                      label: 'X',
-                      unit: 'mm',
-                      controller: px,
-                      isGripper: false,
-                      accentColor: context.tokens.axisX,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _minimalInput(
-                      label: 'Y',
-                      unit: 'mm',
-                      controller: py,
-                      isGripper: false,
-                      accentColor: context.tokens.axisY,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: _minimalInput(
-                      label: 'Z',
-                      unit: 'mm',
-                      controller: pz,
-                      isGripper: false,
-                      accentColor: context.tokens.axisZ,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _minimalInput(
-                      label: 'J7',
-                      unit: '°',
-                      controller: grip,
-                      isGripper: true,
-                      accentColor: context.tokens.axisGripper,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Container(
-                decoration: BoxDecoration(
-                  color: context.tokens.surfaceMuted,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: context.tokens.cardBorder),
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  borderRadius: BorderRadius.circular(14),
-                  clipBehavior: Clip.antiAlias,
-                  child: Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-                    child: SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
-                        'Conservar orientación',
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        'XYZ',
                         style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: context.tokens.ink,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onPrimaryContainer,
                         ),
                       ),
-                      subtitle: Text(
-                        keepOrientation
-                            ? 'Mantiene la orientación actual de la garra'
-                            : 'Usa la orientación de home',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: context.tokens.muted,
-                        ),
-                      ),
-                      value: keepOrientation,
-                      onChanged: (v) => setState(() => keepOrientation = v),
                     ),
-                  ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: vm.canMove && vm.profile?.geometry == true
-                      ? () {
-                          if (coordinateForm.currentState!.validate()) {
-                            run(
-                              () => vm.tcp(
-                                [value(px), value(py), value(pz)],
-                                speed,
-                                value(grip),
-                                keepOrientation: keepOrientation,
-                              ),
-                            );
-                          }
-                        }
-                      : null,
-                  icon: const Icon(Icons.send_rounded, size: 18),
-                  label: const Text('Validar y mover'),
+              IconButton.filledTonal(
+                tooltip: 'Usar posición actual',
+                onPressed: vm.snapshot.reference && vm.snapshot.connected
+                    ? useCurrentCoordinates
+                    : null,
+                icon: const Icon(Icons.my_location_rounded, size: 20),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: _minimalInput(
+                  label: 'X',
+                  unit: 'mm',
+                  controller: px,
+                  isGripper: false,
+                  accentColor: context.tokens.axisX,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _minimalInput(
+                  label: 'Y',
+                  unit: 'mm',
+                  controller: py,
+                  isGripper: false,
+                  accentColor: context.tokens.axisY,
                 ),
               ),
             ],
           ),
-        ),
-      );
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _minimalInput(
+                  label: 'Z',
+                  unit: 'mm',
+                  controller: pz,
+                  isGripper: false,
+                  accentColor: context.tokens.axisZ,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _minimalInput(
+                  label: 'J7',
+                  unit: '°',
+                  controller: grip,
+                  isGripper: true,
+                  accentColor: context.tokens.axisGripper,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            decoration: BoxDecoration(
+              color: context.tokens.surfaceMuted,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: context.tokens.cardBorder),
+            ),
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(14),
+              clipBehavior: Clip.antiAlias,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 2,
+                ),
+                child: SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    'Conservar orientación',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: context.tokens.ink,
+                    ),
+                  ),
+                  subtitle: Text(
+                    keepOrientation
+                        ? 'Mantiene la orientación actual de la garra'
+                        : 'Usa la orientación de home',
+                    style: TextStyle(fontSize: 11, color: context.tokens.muted),
+                  ),
+                  value: keepOrientation,
+                  onChanged: (v) => setState(() => keepOrientation = v),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: vm.canMove && vm.profile?.geometry == true
+                  ? () {
+                      if (coordinateForm.currentState!.validate()) {
+                        run(
+                          () => vm.tcp(
+                            [value(px), value(py), value(pz)],
+                            speed,
+                            value(grip),
+                            keepOrientation: keepOrientation,
+                          ),
+                        );
+                      }
+                    }
+                  : null,
+              icon: const Icon(Icons.send_rounded, size: 18),
+              label: const Text('Validar y mover'),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
   Widget indicatorCard(String label, String value, IconData icon) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
     decoration: BoxDecoration(
@@ -1995,13 +2104,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Widget probeStage(String label, ConnectivityProbeStage stage) {
     final (IconData icon, Color color) = switch (stage) {
-      ConnectivityProbeStage.passed => (Icons.check_circle_outline, Colors.green),
-      ConnectivityProbeStage.failed => (Icons.error_outline, context.tokens.danger),
+      ConnectivityProbeStage.passed => (
+        Icons.check_circle_outline,
+        Colors.green,
+      ),
+      ConnectivityProbeStage.failed => (
+        Icons.error_outline,
+        context.tokens.danger,
+      ),
       ConnectivityProbeStage.checking => (
-          Icons.sync_outlined,
-          Theme.of(context).colorScheme.primary,
-        ),
-      ConnectivityProbeStage.pending => (Icons.circle_outlined, context.tokens.muted),
+        Icons.sync_outlined,
+        Theme.of(context).colorScheme.primary,
+      ),
+      ConnectivityProbeStage.pending => (
+        Icons.circle_outlined,
+        context.tokens.muted,
+      ),
     };
     return Chip(
       avatar: Icon(icon, size: 18, color: color),
@@ -2041,6 +2159,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 12),
+                Text('Estado del robot: ${vm.snapshot.state}'),
+                Text(
+                  'Referenciado: ${vm.snapshot.reference ? "sí" : "no"} · '
+                  'Perfil calibrado: ${vm.profile?.calibrated == true ? "sí" : "no"}',
+                ),
+                if (vm.snapshot.reason.isNotEmpty)
+                  Text('Motivo: ${vm.snapshot.reason}'),
+                const SizedBox(height: 8),
                 Text(
                   repo.confirmed
                       ? 'Última telemetría: hace ${telemetryAge.inSeconds}s'
@@ -2052,7 +2178,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         ? 'Sesión vencida, renovando…'
                         : 'Sesión expira en ${ttl.inSeconds}s',
                   ),
-                Text('Comandos pendientes de confirmación: ${repo.pending.length}'),
+                Text(
+                  'Comandos pendientes de confirmación: ${repo.pending.length}',
+                ),
                 if (vm.reconnecting)
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
@@ -2130,50 +2258,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> profileEditor() async {
-    final editor = TextEditingController(
-      text: vm.profile == null
-          ? '{}'
-          : const JsonEncoder.withIndent('  ').convert(vm.profile!.json),
-    );
+    final base = vm.profile?.json ??
+        jsonDecode(
+              await rootBundle.loadString('assets/profile.simulation.json'),
+            )
+            as Map<String, dynamic>;
+    if (!mounted) return;
     await showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Perfil mecánico versionado'),
-        content: SizedBox(
-          width: 640,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Incrementa version para activar cambios. Los programas anteriores requieren revalidación. No marques calibrado sin completar las pruebas.',
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: editor,
-                maxLines: 14,
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                decoration: const InputDecoration(labelText: 'Perfil JSON'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final raw = editor.text;
-              Navigator.pop(ctx);
-              run(() => vm.applyProfile(raw));
-            },
-            child: const Text('Validar y activar'),
-          ),
-        ],
+      builder: (_) => _ProfileFormDialog(
+        vm: vm,
+        base: base,
+        onSubmit: (raw) => run(() => vm.applyProfile(raw)),
       ),
     );
-    editor.dispose();
   }
 
   Future<void> addSequence() async {
@@ -2399,6 +2497,489 @@ class _ReferenceDialogState extends State<_ReferenceDialog> {
   );
 }
 
+// Same lifecycle rationale as _ReferenceDialog above.
+class _ManualHomeDialog extends StatefulWidget {
+  const _ManualHomeDialog({
+    required this.vm,
+    required this.joint,
+    required this.initialAngle,
+    required this.onSave,
+    this.min,
+    this.max,
+  });
+
+  final RobotViewModel vm;
+  final int joint;
+  final String initialAngle;
+  final double? min;
+  final double? max;
+  final void Function(String angle) onSave;
+
+  @override
+  State<_ManualHomeDialog> createState() => _ManualHomeDialogState();
+}
+
+class _ManualHomeDialogState extends State<_ManualHomeDialog> {
+  late final angle = TextEditingController(text: widget.initialAngle);
+  String? status;
+  bool statusError = false;
+  bool sending = false;
+
+  @override
+  void dispose() {
+    angle.dispose();
+    super.dispose();
+  }
+
+  Future<void> _poner() async {
+    final v = double.tryParse(angle.text.replaceAll(',', '.'));
+    if (v == null || !v.isFinite) {
+      setState(() {
+        status = 'Introduce un ángulo válido';
+        statusError = true;
+      });
+      return;
+    }
+    setState(() {
+      sending = true;
+      status = null;
+    });
+    await widget.vm.act(() => widget.vm.moveJoint(widget.joint, v, 10));
+    if (!mounted) return;
+    setState(() {
+      sending = false;
+      statusError = widget.vm.actionFailed;
+      status = widget.vm.message;
+    });
+  }
+
+  void _guardar() {
+    final v = double.tryParse(angle.text.replaceAll(',', '.'));
+    if (v == null || !v.isFinite) {
+      setState(() {
+        status = 'Introduce un ángulo válido';
+        statusError = true;
+      });
+      return;
+    }
+    widget.onSave(angle.text.trim());
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text('Mover J${widget.joint + 1} manualmente'),
+    content: SizedBox(
+      width: 320,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Mueve la articulación despacio hasta la posición física de home y'
+            ' luego guárdala. El movimiento respeta los límites y la velocidad'
+            ' del perfil activo del robot, no del borrador que estás editando.'
+            '${widget.min != null && widget.max != null ? '\nLímites activos: ${widget.min!.toStringAsFixed(0)}° a ${widget.max!.toStringAsFixed(0)}°' : ''}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: angle,
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(
+              signed: true,
+              decimal: true,
+            ),
+            decoration: const InputDecoration(labelText: 'Ángulo (°)'),
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.tonalIcon(
+              onPressed: widget.vm.canMove && !sending ? _poner : null,
+              icon: sending
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.play_arrow),
+              label: const Text('Poner'),
+            ),
+          ),
+          if (status != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              status!,
+              style: TextStyle(
+                color: statusError
+                    ? Theme.of(context).colorScheme.error
+                    : context.tokens.success,
+              ),
+            ),
+          ],
+          if (!widget.vm.canMove) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Conecta y habilita el robot para mover la articulación en vivo.'
+              ' Aun así puedes guardar un valor manualmente.',
+              style: TextStyle(color: context.tokens.muted, fontSize: 12),
+            ),
+          ],
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancelar'),
+      ),
+      FilledButton(onPressed: _guardar, child: const Text('Guardar')),
+    ],
+  );
+}
+
+// Owns its TextEditingControllers via normal widget lifecycle instead of
+// disposing them right after showDialog's future resolves — same rationale
+// as _ReferenceDialog above (avoids racing the dialog's closing transition).
+class _ProfileFormDialog extends StatefulWidget {
+  const _ProfileFormDialog({
+    required this.vm,
+    required this.base,
+    required this.onSubmit,
+  });
+
+  final RobotViewModel vm;
+  final Map<String, dynamic> base;
+  final void Function(String json) onSubmit;
+
+  @override
+  State<_ProfileFormDialog> createState() => _ProfileFormDialogState();
+}
+
+class _ProfileFormDialogState extends State<_ProfileFormDialog> {
+  static const _jointLabels = [
+    'Home',
+    'Mínimo',
+    'Máximo',
+    'Velocidad',
+    'Aceleración',
+  ];
+  static const _jointKeys = [
+    'home',
+    'minimum',
+    'maximum',
+    'velocity',
+    'acceleration',
+  ];
+
+  bool advanced = false;
+  late bool calibrated = widget.base['calibrated'] == true;
+  late bool geometryValidated = widget.base['geometryValidated'] == true;
+  late bool simulationOnly = widget.base['simulationOnly'] == true;
+  late final version = TextEditingController(
+    text: '${widget.base['version']}',
+  );
+  late final homeRevision = TextEditingController(
+    text: '${widget.base['homeRevision']}',
+  );
+  // jointControllers[key][joint]
+  late final jointControllers = {
+    for (final key in _jointKeys)
+      key: [
+        for (var j = 0; j < 7; j++)
+          TextEditingController(
+            text: '${(widget.base[key] as List)[j]}',
+          ),
+      ],
+  };
+  late final jsonEditor = TextEditingController(
+    text: const JsonEncoder.withIndent('  ').convert(widget.base),
+  );
+
+  @override
+  void dispose() {
+    version.dispose();
+    homeRevision.dispose();
+    for (final list in jointControllers.values) {
+      for (final c in list) {
+        c.dispose();
+      }
+    }
+    jsonEditor.dispose();
+    super.dispose();
+  }
+
+  double _num(TextEditingController c) {
+    final v = double.tryParse(c.text.replaceAll(',', '.'));
+    if (v == null || !v.isFinite) {
+      throw const FormatException('Introduce un número válido');
+    }
+    return v;
+  }
+
+  int _int(TextEditingController c) {
+    final v = int.tryParse(c.text);
+    if (v == null) throw const FormatException('Introduce un número entero');
+    return v;
+  }
+
+  String _build() {
+    if (advanced) return jsonEditor.text;
+    final map = Map<String, dynamic>.from(widget.base);
+    map['version'] = _int(version);
+    map['homeRevision'] = _int(homeRevision);
+    map['calibrated'] = calibrated;
+    map['geometryValidated'] = geometryValidated;
+    map['simulationOnly'] = simulationOnly;
+    for (final key in _jointKeys) {
+      map[key] = [for (final c in jointControllers[key]!) _num(c)];
+    }
+    return jsonEncode(map);
+  }
+
+  Widget _numField(String label, TextEditingController c, {double? width}) {
+    final field = TextField(
+      controller: c,
+      keyboardType: const TextInputType.numberWithOptions(
+        signed: true,
+        decimal: true,
+      ),
+      style: const TextStyle(fontSize: 14),
+      decoration: InputDecoration(
+        labelText: label,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: 10,
+        ),
+      ),
+    );
+    return width == null ? field : SizedBox(width: width, child: field);
+  }
+
+  Widget _sectionLabel(String text) => Text(
+    text.toUpperCase(),
+    style: TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.w700,
+      letterSpacing: 0.8,
+      color: context.tokens.muted,
+    ),
+  );
+
+  Widget _jointCard(int j) => Container(
+    margin: const EdgeInsets.only(bottom: 10),
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: context.tokens.surfaceMuted,
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: context.tokens.cardBorder),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+          decoration: BoxDecoration(
+            color: Theme.of(
+              context,
+            ).colorScheme.primary.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            'J${j + 1}',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.4,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (var k = 0; k < _jointKeys.length; k++) ...[
+              if (k > 0) const SizedBox(width: 8),
+              Expanded(
+                child: k == 0
+                    ? _homeControl(j)
+                    : _numField(
+                        _jointLabels[k],
+                        jointControllers[_jointKeys[k]]![j],
+                      ),
+              ),
+            ],
+          ],
+        ),
+      ],
+    ),
+  );
+
+  Widget _homeControl(int j) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Text(
+        'Home',
+        style: TextStyle(fontSize: 12, color: context.tokens.muted),
+      ),
+      const SizedBox(height: 4),
+      SizedBox(
+        width: double.infinity,
+        height: 40,
+        child: OutlinedButton.icon(
+          onPressed: () => _openManualHome(j),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            alignment: Alignment.centerLeft,
+          ),
+          icon: const Icon(Icons.open_with, size: 16),
+          label: Text(
+            '${jointControllers['home']![j].text}°',
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ),
+    ],
+  );
+
+  Future<void> _openManualHome(int j) async {
+    final minText = jointControllers['minimum']![j].text.replaceAll(',', '.');
+    final maxText = jointControllers['maximum']![j].text.replaceAll(',', '.');
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _ManualHomeDialog(
+        vm: widget.vm,
+        joint: j,
+        initialAngle: jointControllers['home']![j].text,
+        min: double.tryParse(minText),
+        max: double.tryParse(maxText),
+        onSave: (angle) =>
+            setState(() => jointControllers['home']![j].text = angle),
+      ),
+    );
+  }
+
+  Widget _formTab() => SingleChildScrollView(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Incrementa version para activar cambios. Los programas anteriores requieren revalidación. No marques calibrado sin completar las pruebas.',
+          style: TextStyle(color: context.tokens.muted),
+        ),
+        const SizedBox(height: 16),
+        _sectionLabel('Revisión'),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          children: [
+            _numField('Versión', version, width: 140),
+            _numField('Revisión de home', homeRevision, width: 160),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _sectionLabel('Estado'),
+        const SizedBox(height: 4),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          title: const Text('Calibrado'),
+          value: calibrated,
+          onChanged: (v) => setState(() => calibrated = v),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          title: const Text('Geometría validada'),
+          value: geometryValidated,
+          onChanged: (v) => setState(() => geometryValidated = v),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          title: const Text('Solo simulación'),
+          value: simulationOnly,
+          onChanged: (v) => setState(() => simulationOnly = v),
+        ),
+        const SizedBox(height: 16),
+        _sectionLabel('Por articulación'),
+        const SizedBox(height: 8),
+        for (var j = 0; j < 7; j++) _jointCard(j),
+      ],
+    ),
+  );
+
+  Widget _jsonTab() => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      const Text(
+        'Edición avanzada: incluye cableado de servos, ejes y cajas de colisión.',
+      ),
+      const SizedBox(height: 12),
+      TextField(
+        controller: jsonEditor,
+        maxLines: 14,
+        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+        decoration: const InputDecoration(labelText: 'Perfil JSON'),
+      ),
+    ],
+  );
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Perfil mecánico versionado'),
+    content: SizedBox(
+      width: 640,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: false, label: Text('Formulario')),
+              ButtonSegment(value: true, label: Text('JSON avanzado')),
+            ],
+            selected: {advanced},
+            onSelectionChanged: (s) => setState(() => advanced = s.first),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 420,
+            child: advanced ? _jsonTab() : _formTab(),
+          ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancelar'),
+      ),
+      FilledButton(
+        onPressed: () {
+          final String raw;
+          try {
+            raw = _build();
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('$e')),
+            );
+            return;
+          }
+          Navigator.pop(context);
+          widget.onSubmit(raw);
+        },
+        child: const Text('Validar y activar'),
+      ),
+    ],
+  );
+}
+
 class _SequenceNameDialog extends StatefulWidget {
   const _SequenceNameDialog();
 
@@ -2495,7 +3076,10 @@ class _PairRobotDialogState extends State<_PairRobotDialog> {
         ),
         if (error != null) ...[
           const SizedBox(height: 12),
-          Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          Text(
+            error!,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
         ],
       ],
     ),
@@ -2505,9 +3089,7 @@ class _PairRobotDialogState extends State<_PairRobotDialog> {
         child: const Text('Cancelar'),
       ),
       FilledButton(
-        onPressed: submitting || controller.text.trim().isEmpty
-            ? null
-            : submit,
+        onPressed: submitting || controller.text.trim().isEmpty ? null : submit,
         child: submitting
             ? const SizedBox(
                 width: 18,

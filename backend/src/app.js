@@ -62,13 +62,15 @@ export function createApp({ db, broker, key, secret, now = Date.now }) {
   app.post(
     "/auth/register",
     route(async (req, res) => {
-      let { email, password } = req.body;
+      let { email, password, name } = req.body;
       if (
         typeof email !== "string" ||
         !/^\S+@\S+\.\S+$/.test(email) ||
         email.length > 254
       )
         return res.status(400).json({ error: "email" });
+      if (name !== undefined && (typeof name !== "string" || name.length > 254))
+        return res.status(400).json({ error: "name" });
       let stored;
       try {
         stored = passwordHash(password);
@@ -76,11 +78,10 @@ export function createApp({ db, broker, key, secret, now = Date.now }) {
         return res.status(400).json({ error: "password-minimum-12" });
       }
       let id = random();
-      await db.query("INSERT INTO users(id,email,password) VALUES($1,$2,$3)", [
-        id,
-        email.toLowerCase(),
-        stored,
-      ]);
+      await db.query(
+        "INSERT INTO users(id,email,password,name) VALUES($1,$2,$3,$4)",
+        [id, email.toLowerCase(), stored, name || null],
+      );
       res.status(201).json({ token: accessToken(id, secret, now()) });
     }),
   );
@@ -99,6 +100,35 @@ export function createApp({ db, broker, key, secret, now = Date.now }) {
     }),
   );
   app.use(auth);
+  app.get(
+    "/me",
+    route(async (req, res) => {
+      let u = (
+        await db.query("SELECT email, name FROM users WHERE id=$1", [
+          req.user,
+        ])
+      ).rows[0];
+      if (!u) return res.status(404).json({ error: "not-found" });
+      res.json({ email: u.email, name: u.name });
+    }),
+  );
+  app.patch(
+    "/me",
+    route(async (req, res) => {
+      let { name } = req.body;
+      if (
+        typeof name !== "string" ||
+        name.trim().length === 0 ||
+        name.length > 254
+      )
+        return res.status(400).json({ error: "name" });
+      await db.query("UPDATE users SET name=$1 WHERE id=$2", [
+        name.trim(),
+        req.user,
+      ]);
+      res.json({ ok: true });
+    }),
+  );
   app.get(
     "/robots",
     route(async (req, res) =>

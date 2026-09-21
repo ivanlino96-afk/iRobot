@@ -27,10 +27,15 @@ class ApiClient {
     String email,
     String password, {
     bool register = false,
+    String? name,
   }) async {
     final r = await dio.post(
       '/auth/${register ? 'register' : 'login'}',
-      data: {'email': email, 'password': password},
+      data: {
+        'email': email,
+        'password': password,
+        if (register && name != null && name.isNotEmpty) 'name': name,
+      },
     );
     token = r.data['token'];
     dio.options.headers['Authorization'] = 'Bearer $token';
@@ -46,6 +51,8 @@ class ApiClient {
   Future<dynamic> get(String path) async => (await dio.get(path)).data;
   Future<dynamic> post(String path, dynamic data) async =>
       (await dio.post(path, data: data)).data;
+  Future<dynamic> patch(String path, dynamic data) async =>
+      (await dio.patch(path, data: data)).data;
   Future<void> delete(String path) async {
     await dio.delete(path);
   }

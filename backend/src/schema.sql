@@ -5,4 +5,5 @@ CREATE TABLE IF NOT EXISTS programs (id text PRIMARY KEY, robot_id text REFERENC
 CREATE TABLE IF NOT EXISTS sessions (robot_id text PRIMARY KEY REFERENCES robots(id), id text NOT NULL, user_id text NOT NULL REFERENCES users(id), boot_id text NOT NULL, scope text NOT NULL, expires bigint NOT NULL, broker_user text NOT NULL, broker_password text NOT NULL);
 
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS family_id text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS name text;
 CREATE UNIQUE INDEX IF NOT EXISTS program_revision_unique ON programs(family_id,revision);

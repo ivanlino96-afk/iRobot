@@ -33,6 +33,9 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Native test-only library (see packages/airobot_kinematics/build_test_lib.sh)
+/libairobot_kinematics.so
+
 # Symbolication related
 app.*.symbols
 
